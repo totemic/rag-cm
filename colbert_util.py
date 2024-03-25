@@ -493,20 +493,24 @@ class ColBERT:
 
         for result in results:
             result_for_query = []
-            for passage_id, rank, score in zip(*result):
-                document_id = self.pid_docid_map[passage_id]
+            passage_ids: list[int] = [passage_id for passage_id, rank, score in zip(*result)]
+            passages = db_collection.get_passages_by_id(passage_ids)
+            for passage_id, rank, score, passage_res in zip(*result, passages):
+                (passage_id1, passage, ) = passage_res
+                # document_id = self.pid_docid_map[passage_id]
                 result_dict = {
-                    "content": self.collection[passage_id],
+                    # "content": self.collection[passage_id],
+                    "content": passage,
                     "score": score,
                     "rank": rank - 1 if zero_index_ranks else rank,
-                    "document_id": document_id,
+                    # "document_id": document_id,
                     "passage_id": passage_id,
                 }
 
-                if self.docid_metadata_map is not None:
-                    if document_id in self.docid_metadata_map:
-                        doc_metadata = self.docid_metadata_map[document_id]
-                        result_dict["document_metadata"] = doc_metadata
+                # if self.docid_metadata_map is not None:
+                #     if document_id in self.docid_metadata_map:
+                #         doc_metadata = self.docid_metadata_map[document_id]
+                #         result_dict["document_metadata"] = doc_metadata
 
                 result_for_query.append(result_dict)
 

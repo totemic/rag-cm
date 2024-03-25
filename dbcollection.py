@@ -28,6 +28,23 @@ def run_ranks() -> int:
     nranks: int =  Run().nranks or 1
     return nranks
 
+def sql_parameter_marks(parameters: list[Any]) -> str:
+    return ','.join(['?']*len(parameters))
+
+# create (?, ?), (?, ?)
+def sql_index_and_parameter_marks(parameters: list[Any]) -> str:
+    return ','.join(['(?,?)']*len(parameters))
+
+def sql_add_index_to_params(parameters: list[int]) -> list[int]:
+    params_with_index = []
+    indexes = list(range(0, len(parameters)))
+    # create list with 2x capacity
+    params_with_index = [0] * (len(parameters) * 2)
+    # move all indexes into odd positions
+    params_with_index[0::2] = indexes
+    # move all the ids into even positions
+    params_with_index[1::2] = parameters
+    return params_with_index
 
 # TODO: (copied from Colbert) Look up path in some global [per-thread or thread-safe] list.
 
@@ -123,6 +140,25 @@ class DbCollection(Collection):
 
             if len(L) < chunksize:
                 return
+
+    def get_passages_by_id(self, passage_ids: list[int]) -> Iterator[tuple[int,str]]:
+        return self.__class__.read_passages_by_id(self.get_or_make_db(), passage_ids)
+    
+    @classmethod
+    def read_passages_by_id(cls, cursor: sqlite3.Cursor, passage_ids: list[int]) -> Iterator[tuple[int,str]]:
+        # create (?, ?), (?, ?)
+        markers_for_index_and_param = sql_index_and_parameter_marks(passage_ids)
+        params_with_index = sql_add_index_to_params(passage_ids)
+
+        query: str = (f'WITH cte(pos, id) AS (VALUES {markers_for_index_and_param})'
+                      f' SELECT p.{db.ID}, {db.CONTENT}'
+                      f' FROM cte c'
+                      f' LEFT JOIN {db.PASSAGE} p ON p.{db.ID} = c.id'
+                      ' ORDER BY c.pos')
+       
+        res: sqlite3.Cursor = cursor.execute(query, params_with_index)
+        return res
+
     
     def get_chunksize(self) -> int:
         return min(25_000, 1 + len(self) // run_ranks())  # 25k is great, 10k allows things to reside on GPU??    

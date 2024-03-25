@@ -7,14 +7,14 @@ from constants import (
     DB_FILE_PATH, 
     INDEX_NAME,
     INDEX_PATH,
-    INDEX_NAME_RAGA,
-    INDEX_PATH_RAGA
+    # INDEX_NAME_RAGA,
+    # INDEX_PATH_RAGA
 )
 import db
 
 from pathlib import Path
 from colbert_util import ColBERT
-from ragatouillefork import RAGPretrainedModel
+# from ragatouillefork import RAGPretrainedModel
 
 
 from llama_index.core import SimpleDirectoryReader
@@ -73,7 +73,7 @@ def open_sqlite() -> sqlite3.Connection:
 
 con = open_sqlite();
 cursor: sqlite3.Cursor = con.cursor()
-row_id = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() or 0
+has_passage_ids = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is not None
 
 
 #embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-small")
@@ -129,10 +129,10 @@ for docs in reader.iter_data():
                            (filename, ))
             row = cursor.fetchone()
             (doc_id, ) = row if row else (None, )
-            if doc_id:
+            if doc_id is not None:
                 filename_doc_id_map[filename] = doc_id
 
-        if node.ref_doc_id:
+        if node.ref_doc_id is not None:
             if node.ref_doc_id in group_uuid_group_id_map:
                 group_id = group_uuid_group_id_map[node.ref_doc_id]
             else:
@@ -147,12 +147,14 @@ for docs in reader.iter_data():
         content: str = node.get_content()
     
         prev_passage_id = passage_uuid_passage_id_map[node.prev_node.node_id] if node.prev_node else None
-        cursor.execute(f'INSERT INTO {db.PASSAGE} ({db.CONTENT}, {db.GROUP_ID}, {db.PREV_ID}) VALUES (?, ?, ?)'
+        cursor.execute(f'INSERT INTO {db.PASSAGE} ({db.ID}, {db.CONTENT}, {db.GROUP_ID}, {db.PREV_ID}) VALUES (?,?,?,?)'
                        f' RETURNING {db.ID}',
-                       (content, group_id, prev_passage_id))
+                       # Make sure we start passage index at 0, sqlite normaly starts at 1
+                       (None if has_passage_ids else 0, content, group_id, prev_passage_id))
         row = cursor.fetchone()
         (passage_id, ) = row if row else (None, )
-        if passage_id:
+        if passage_id is not None:
+            has_passage_ids = True
             passage_uuid_passage_id_map[node.node_id] = passage_id
 
             document_ids.append(node.node_id)
@@ -187,23 +189,23 @@ db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
 
 start_index: float = time.time()
 
-# colbert = ColBERT("colbert-ir/colbertv2.0")
-# path_to_index2: str = colbert.index(
-#     db_collection=DbCollection(db_path=DB_FILE_PATH, cursor=cursor),
-#     index_name=INDEX_NAME, 
-#     max_document_length=chunk_size,
-#     overwrite=True
-# )
+colbert = ColBERT("colbert-ir/colbertv2.0")
+path_to_index2: str = colbert.index(
+    db_collection=DbCollection(db_path=DB_FILE_PATH, cursor=cursor),
+    index_name=INDEX_NAME, 
+    max_document_length=chunk_size,
+    overwrite=True
+)
 
-RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
-path_to_index2: str = RAG.index(
-    collection=collection, 
-    document_ids=document_ids,
-    document_metadatas=document_metadatas,
-    index_name=INDEX_NAME_RAGA, 
-    max_document_length=chunk_size, 
-    )
-print(path_to_index2)
+# RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
+# path_to_index2: str = RAG.index(
+#     collection=collection, 
+#     document_ids=document_ids,
+#     document_metadatas=document_metadatas,
+#     index_name=INDEX_NAME_RAGA, 
+#     max_document_length=chunk_size, 
+#     )
+# print(path_to_index2)
 
 # RAG: RAGPretrainedModel = RAGPretrainedModel.from_index(INDEX_PATH_RAGA)
 # RAG.add_to_index(
