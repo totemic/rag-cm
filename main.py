@@ -5,16 +5,17 @@ from fastapi import Depends, FastAPI, HTTPException
 import time
 from typing import Any, Union
 
-from ragatouillefork import RAGPretrainedModel
-from colbert_util import ColBERT
+# from ragatouillefork import RAGPretrainedModel
+from ColBertManager import ColBertManager
 from constants import (
     DB_FILE_PATH,
-    INDEX_PATH,
-    INDEX_PATH_RAGA
+    INDEX_ROOT_PATH,
+    INDEX_NAME,
+    # INDEX_PATH_RAGA
 )
 from dbcollection import DbCollection
 
-colbert = ColBERT(INDEX_PATH, load_from_index=True)
+colbert_manager = ColBertManager(INDEX_ROOT_PATH, INDEX_NAME)
 # RAG: RAGPretrainedModel = RAGPretrainedModel.from_index(INDEX_PATH_RAGA)
 # results = RAG.search(query="Test", k=3)
 
@@ -62,7 +63,7 @@ async def query(q: str, count: int=3) -> Any | list[Any]:
     con: sqlite3.Connection = sqlite3.connect(DB_FILE_PATH)
     cursor: sqlite3.Cursor = con.cursor()
     db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
-    results = colbert.search(db_collection = db_collection, query=q, k=count)
+    results = colbert_manager.search(db_collection = db_collection, query=q, k=count)
     # results = RAG.search(query=q, k=count)
     elapsed_search = (time.time() - start_search)
     print(elapsed_search)

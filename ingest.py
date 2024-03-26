@@ -5,15 +5,15 @@ import sqlite3
 
 from constants import (
     DB_FILE_PATH, 
+    INDEX_ROOT_PATH,
     INDEX_NAME,
-    INDEX_PATH,
     # INDEX_NAME_RAGA,
     # INDEX_PATH_RAGA
 )
 import db
 
 from pathlib import Path
-from colbert_util import ColBERT
+from ColBertManager import ColBertManager
 # from ragatouillefork import RAGPretrainedModel
 
 
@@ -73,7 +73,14 @@ def open_sqlite() -> sqlite3.Connection:
 
 con = open_sqlite();
 cursor: sqlite3.Cursor = con.cursor()
-has_passage_ids = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is not None
+is_empty_db = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is None
+
+db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
+colbert_manager = ColBertManager(INDEX_ROOT_PATH, INDEX_NAME, "colbert-ir/colbertv2.0") if is_empty_db else ColBertManager(INDEX_ROOT_PATH, INDEX_NAME)
+next_passage_id = 0 
+if not is_empty_db:
+    colbert_manager.searcher
+
 
 
 #embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-small")
@@ -150,11 +157,11 @@ for docs in reader.iter_data():
         cursor.execute(f'INSERT INTO {db.PASSAGE} ({db.ID}, {db.CONTENT}, {db.GROUP_ID}, {db.PREV_ID}) VALUES (?,?,?,?)'
                        f' RETURNING {db.ID}',
                        # Make sure we start passage index at 0, sqlite normaly starts at 1
-                       (None if has_passage_ids else 0, content, group_id, prev_passage_id))
+                       (next_passage_id, content, group_id, prev_passage_id))
         row = cursor.fetchone()
         (passage_id, ) = row if row else (None, )
         if passage_id is not None:
-            has_passage_ids = True
+            next_passage_id = next_passage_id + 1
             passage_uuid_passage_id_map[node.node_id] = passage_id
 
             document_ids.append(node.node_id)
@@ -175,7 +182,7 @@ cursor.execute(f'UPDATE {db.PASSAGE} AS p'
 
 con.commit()
 
-db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
+
 
 
 # https://jina.ai/news/what-is-colbert-and-late-interaction-and-why-they-matter-in-search/
@@ -189,13 +196,19 @@ db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
 
 start_index: float = time.time()
 
-colbert = ColBERT("colbert-ir/colbertv2.0")
-path_to_index2: str = colbert.index(
-    db_collection=DbCollection(db_path=DB_FILE_PATH, cursor=cursor),
-    index_name=INDEX_NAME, 
-    max_document_length=chunk_size,
-    overwrite=True
-)
+if is_empty_db:
+    path_to_index2: str = colbert_manager.index(
+        db_collection=DbCollection(db_path=DB_FILE_PATH, cursor=cursor),
+        max_document_length=chunk_size,
+        overwrite=True
+    )
+    is_empty_db = False
+else:
+    colbert_manager.add_to_index(
+        new_collection=collection, 
+        new_document_ids=document_ids,
+        new_document_metadatas=document_metadatas,
+    )
 
 # RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
 # path_to_index2: str = RAG.index(

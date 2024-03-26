@@ -10,8 +10,10 @@ import numpy as np
 import torch
 from colbert import Indexer, IndexUpdater, Searcher, Trainer
 from colbert.data import Collection
+from colbert.indexing.collection_encoder import CollectionEncoder
 from colbert.infra import ColBERTConfig, Run, RunConfig
 from colbert.modeling.checkpoint import Checkpoint
+
 
 #from colbert.data.collection import Collection
 from dbcollection import DbCollection
@@ -20,16 +22,15 @@ from dbcollection import DbCollection
 # TODO: Move all bsize related calcs to `_set_bsize()`
 
 
-class ColBERT:
+class ColBertManager:
     def __init__(
         self,
-        pretrained_model_path: str,
+        index_root: str,
+        index_name: str,
+        pretrained_model_path: str | None = None,
         n_gpu: int = -1,
-        index_name: Optional[str] = None,
         verbose: int = 1,
-        load_from_index: bool = False,
-        index_root: Optional[str] = None,
-        **kwargs,
+        **kwargs:dict[str, Any],
     ):
         self.verbose = verbose
         self.collection = None
@@ -41,48 +42,60 @@ class ColBERT:
         if n_gpu == -1:
             n_gpu = 1 if torch.cuda.device_count() == 0 else torch.cuda.device_count()
 
-        self.loaded_from_index = load_from_index
+        self.loaded_from_index = pretrained_model_path is None
 
-        pretrained_model_name_or_path = str(Path(pretrained_model_path))
-
-        if load_from_index:
-            self.index_path = pretrained_model_name_or_path
-            ckpt_config = ColBERTConfig.load_from_index(pretrained_model_name_or_path)
+        root = ".ragindex/"
+        experiment = "colbert"
+        if pretrained_model_path is None:
+            index_path = str(Path(index_root) / index_name)
+            #self.index_path = index_path
+            ckpt_config = ColBERTConfig.load_from_index(index_path) # type: ignore
             self.config = ckpt_config
             self.run_config = RunConfig(
-                nranks=n_gpu, experiment=self.config.experiment, root=self.config.root
+                # nranks=n_gpu, root=self.config.root, experiment=self.config.experiment
+                nranks=n_gpu, root=root, experiment=experiment
             )
-            split_root = pretrained_model_name_or_path.split("/")[:-1]
-            self.config.root = "/".join(split_root)
-            self.index_root = self.config.root
+            #split_root = pretrained_model_name_or_path.split("/")[:-1]
+            #self.config.index_root = "/".join(split_root)
+            self.config.index_root = index_root
+            self.index_name = index_name # self.config.index_name
             self.checkpoint = self.config.checkpoint
-            self.index_name = self.config.index_name
+
             # self._get_collection_files_from_disk(pretrained_model_name_or_path)
             # TODO: Modify root assignment when loading from HF
 
         else:
-            self.index_root = index_root if index_root is not None else ".ragindex/"
-            ckpt_config = ColBERTConfig.load_from_checkpoint(pretrained_model_name_or_path)
+            #index_root = index_root if index_root is not None else ".ragindex/"
+            checkpoint_name_or_path = str(Path(pretrained_model_path))
+            ckpt_config = ColBERTConfig.load_from_checkpoint(checkpoint_name_or_path) # type: ignore
+
+            #index_root_ = self.index_root or os.path.join(self.root, self.experiment, 'indexes/')            
+            #index_path_= self.index_path or os.path.join(self.index_root_, self.index_name)            
             self.run_config = RunConfig(
-                nranks=n_gpu, experiment="colbert", root=self.index_root
+                nranks=n_gpu, root=root, experiment=experiment
             )
-            local_config = ColBERTConfig(**kwargs)
-            self.config = ColBERTConfig.from_existing(
-                ckpt_config,
-                local_config,
-            )
-            self.checkpoint: str = pretrained_model_name_or_path
-            self.index_name: str | None = index_name
-            self.config.experiment = "colbert"
-            self.config.root = self.index_root
+            local_config = ColBERTConfig(**kwargs) # type: ignore
+            self.config = ColBERTConfig.from_existing(ckpt_config, local_config,) # type: ignore
+            #self.config.root = index_root
+            # self.config.root = str(
+            #     Path(self.run_config.root) / Path(self.run_config.experiment) / "indexes"
+            # )
+            # self.config.index_path = str(
+            #     Path(self.config.root)
+            #     / index_name if index_name is not None else self.checkpoint + "new_index"
+            # )
+            self.config.triples = "unused"
+            self.config.queries = "unused"
+            self.config.index_root = index_root
+            self.config.index_name = index_name
+            #self.config.experiment = "colbert"
+            #self.index_name = index_name if index_name is not None else self.checkpoint + "new_index"
+
+            self.checkpoint: str = checkpoint_name_or_path
 
         # if not training_mode:
-        self.inference_ckpt = Checkpoint(
-            self.checkpoint, colbert_config=self.config
-        )
-        self.base_model_max_tokens: int = (
-            self.inference_ckpt.bert.config.max_position_embeddings
-        )
+        self.inference_ckpt = Checkpoint(self.checkpoint, colbert_config=self.config)
+        self.base_model_max_tokens: int = (self.inference_ckpt.bert.config.max_position_embeddings)
 
         self.run_context = Run().context(self.run_config)
         self.run_context.__enter__()  # Manually enter the context
@@ -131,7 +144,6 @@ class ColBERT:
         # collection: List[str],
         # pid_docid_map: Dict[int, str],
         # docid_metadata_map: Optional[dict] = None,
-        index_name: Optional["str"] = None,
         max_document_length: int = 256,
         overwrite: Union[bool, str] = "reuse",
         bsize: int = 32,
@@ -151,20 +163,6 @@ class ColBERT:
                 print("Will continue with CPU indexing in 5 seconds...")
                 time.sleep(5)
         self.config.doc_maxlen = max_document_length
-        if index_name is not None:
-            if self.index_name is not None:
-                print(
-                    f"New index_name received!",
-                    f"Updating current index_name ({self.index_name}) to {index_name}",
-                )
-            self.index_name = index_name
-        else:
-            if self.index_name is None:
-                print(
-                    f"No index_name received!",
-                    f"Using default index_name ({self.checkpoint}_new_index)",
-                )
-            self.index_name = self.checkpoint + "new_index"
 
         # self.collection = collection
         # self.pid_docid_map = pid_docid_map
@@ -175,9 +173,7 @@ class ColBERT:
             nbits = 8
         elif len(db_collection) < 10000:
             nbits = 4
-        self.config: ColBERTConfig = ColBERTConfig.from_existing(
-            self.config, ColBERTConfig(nbits=nbits, index_bsize=bsize)
-        )
+        self.config: ColBERTConfig = ColBERTConfig.from_existing(self.config, ColBERTConfig(nbits=nbits, index_bsize=bsize)) # type: ignore
 
         if len(db_collection) > 100000:
             self.config.kmeans_niters = 4
@@ -193,59 +189,37 @@ class ColBERT:
             config=self.config,
             verbose=self.verbose,
         )
-        self.indexer.configure(avoid_fork_if_possible=True)
-        self.indexer.index(
-            name=self.index_name, collection=db_collection, overwrite=overwrite
-        )
+        self.indexer.configure(avoid_fork_if_possible=True) # type: ignore
 
-        self.index_path = str(
-            Path(self.run_config.root)
-            / Path(self.run_config.experiment)
-            / "indexes"
-            / self.index_name
-        )
-        self.config.root = str(
-            Path(self.run_config.root) / Path(self.run_config.experiment) / "indexes"
-        )
+
+        res_path = self.indexer.index(name=self.config.index_name, collection=db_collection, overwrite=overwrite) # type: ignore
+
+        # self.index_path = str(
+        #     Path(self.run_config.root)
+        #     / Path(self.run_config.experiment)
+        #     / "indexes"
+        #     / self.index_name
+        # )
+        # self.config.root = str(
+        #     Path(self.run_config.root) / Path(self.run_config.experiment) / "indexes"
+        # )
 
         # self._write_collection_files_to_disk()
 
         print("Done indexing!")
 
-        return self.index_path
+        return res_path
 
     def add_to_index(
         self,
         db_collection: DbCollection,
-        new_pids: list[int],
+        new_passages: list[str],
+        new_passage_ids_for_validation: list[int],
         # new_documents: List[str],
         # new_pid_docid_map: Dict[int, str],
         # new_docid_metadata_map: Optional[List[dict]] = None,
-        index_name: Optional[str] = None,
         bsize: int = 32,
-    ):
-        self.index_name = index_name if index_name is not None else self.index_name
-        if self.index_name is None:
-            print(
-                "Cannot add to index without an index_name! Please provide one.",
-                "Returning empty results.",
-            )
-            return None
-
-        print(
-            "WARNING: add_to_index support is currently experimental!",
-            "add_to_index support will be more thorough in future versions",
-        )
-
-        if self.loaded_from_index:
-            index_root = self.config.root
-        else:
-            expected_path_segment = Path(self.config.experiment) / "indexes"
-            if str(expected_path_segment) in self.config.root:
-                index_root = self.config.root
-            else:
-                index_root = str(Path(self.config.root) / expected_path_segment)
-
+    ) -> None:
             # if not self.collection:
             #     collection_path = Path(index_root) / self.index_name / "collection.json"
             #     if collection_path.exists():
@@ -276,7 +250,7 @@ class ColBERT:
         # ]
 
         combined_len = len(db_collection)
-        new_doc_len = len(new_pids)
+        new_doc_len = len(new_passages)
         current_len = combined_len - new_doc_len
 
         if current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05:
@@ -286,7 +260,7 @@ class ColBERT:
                 # combined_documents,
                 # self.pid_docid_map,
                 # docid_metadata_map=self.docid_metadata_map,
-                index_name=self.index_name,
+                #index_name=self.index_name,
                 max_document_length=self.config.doc_maxlen,
                 overwrite="force_silent_overwrite",
                 bsize=bsize,
@@ -295,30 +269,65 @@ class ColBERT:
             if self.config.index_bsize != bsize:  # Update bsize if it's different
                 self.config.index_bsize = bsize
 
-            searcher = Searcher(
-                checkpoint=self.checkpoint,
-                config=None,
-                collection=db_collection,
-                index=self.index_name,
-                index_root=index_root,
-                verbose=self.verbose,
+            searcher: Searcher = self.get_searcher_for_index_update(db_collection=db_collection)
+            updater = IndexUpdater(config=self.config, searcher=searcher, 
+                                   # NOTE: don't specify the checkpoint here, otherwise the model is loaded again
+                                   # instead, we manually add the embedder to IndexUpdater
+                                   #checkpoint=self.checkpoint
+            
             )
+            if True:
+                # NOTE: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
+                updater.has_checkpoint = True
+                updater.checkpoint = searcher.checkpoint # type: ignore
+                updater.encoder = CollectionEncoder(config=self.config, checkpoint = searcher.checkpoint) # type: ignore
 
-            updater = IndexUpdater(
-                config=self.config, searcher=searcher, checkpoint=self.checkpoint
-            )
+            passage_ids: List[int] = updater.add(new_passages) # type: ignore
 
-            # db_collection
+            # TODO: compare returned passage_ids with the one we generated ourselves. 
+            # If they don't match for some reason, we might have to recreate the entire index
 
-            updater.add([doc["content"] for doc in new_documents_with_ids])
             updater.persist_to_disk()
 
             # self._write_collection_files_to_disk()
 
         print(
-            f"Successfully updated index with {len(new_documents_with_ids)} new documents!\n",
-            f"New index size: {current_len + len(new_documents_with_ids)}",
+            f"Successfully updated index with {new_doc_len} new documents!\n",
+            f"New index size: {combined_len}",
         )
+    
+    def get_next_passage_id_for_insert(self, db_collection: DbCollection) -> int:
+        if self.searcher is None:
+            self._load_searcher(db_collection = db_collection)
+
+        start_pid = 0
+        if (self.searcher is not None):
+            # TODO: this was copied from IndexUpdater.add
+            # ideally this functionality should be exposed by it instead of replicating it here
+            start_pid = len(self.searcher.ranker.doclens)
+        return start_pid
+
+    
+    def get_searcher_for_index_update(self, db_collection: DbCollection): 
+        if self.loaded_from_index:
+            index_root = self.config.index_root_
+        else:
+            expected_path_segment = Path(self.config.experiment) / "indexes"
+            if str(expected_path_segment) in self.config.root:
+                index_root = self.config.root
+            else:
+                index_root = str(Path(self.config.root) / expected_path_segment)
+
+        searcher = Searcher(
+            checkpoint=self.checkpoint,
+            config=None,
+            collection=db_collection,
+            index=self.index_name,
+            index_root=index_root,
+            verbose=self.verbose,
+        )
+        return searcher
+
 
     def delete_from_index(
         self,
@@ -347,7 +356,9 @@ class ColBERT:
             verbose=self.verbose,
         )
         updater = IndexUpdater(
-            config=self.config, searcher=searcher, checkpoint=self.checkpoint
+            config=self.config, searcher=searcher, 
+            # don't specifiy checkpoint, otherwise the model will be loaded again
+            #checkpoint=self.checkpoint
         )
 
         pids_to_remove = []
@@ -381,23 +392,13 @@ class ColBERT:
     def _load_searcher(
         self,
         db_collection: DbCollection,
-        index_name: Optional[str],
-        force_fast: bool = False,
     ):
-        if index_name is not None:
-            if self.index_name is not None:
-                print(
-                    f"New index_name received!",
-                    f"Updating current index_name ({self.index_name}) to {index_name}",
-                )
-            self.index_name = index_name
-        else:
-            if self.index_name is None:
-                print(
-                    "Cannot search without an index_name! Please provide one.",
-                    "Returning empty results.",
-                )
-                return None
+        if self.index_name is None:
+            print(
+                "Cannot search without an index_name! Please provide one.",
+                "Returning empty results.",
+            )
+            return None
         print(
             f"Loading searcher for index {self.index_name} for the first time...",
             "This may take a few seconds",
@@ -409,25 +410,9 @@ class ColBERT:
             # use empty collection, it's not really needed
             #collection=Collection(data='dummy'),
             #collection=self.collection,
-            index_root=self.config.root,
+            index_root=self.config.index_root_,
             index=self.index_name,
         )
-
-        if not force_fast:
-            self.searcher.configure(ndocs=1024)
-            self.searcher.configure(ncells=16)
-            if len(self.searcher.collection) < 10000:
-                self.searcher.configure(ncells=8)
-                self.searcher.configure(centroid_score_threshold=0.4)
-            elif len(self.searcher.collection) < 100000:
-                self.searcher.configure(ncells=4)
-                self.searcher.configure(centroid_score_threshold=0.45)
-            # Otherwise, use defaults for k
-        else:
-            # Use fast settingss
-            self.searcher.configure(ncells=1)
-            self.searcher.configure(centroid_score_threshold=0.5)
-            self.searcher.configure(ndocs=256)
 
         print("Searcher loaded!")
 
@@ -439,20 +424,43 @@ class ColBERT:
         self.searcher.config.query_maxlen = maxlen
         self.searcher.checkpoint.query_tokenizer.query_maxlen = maxlen
 
+
+    def configure_search(self, force_fast: bool = False):
+        if (self.searcher is None):
+             print("WARNING: No searcher loaded, ignoring!")
+             return
+    
+        if force_fast:
+            # Use fast settingss
+            self.searcher.configure(ncells=1)
+            self.searcher.configure(centroid_score_threshold=0.5)
+            self.searcher.configure(ndocs=256)
+        else:
+            self.searcher.configure(ndocs=1024)
+            self.searcher.configure(ncells=16)
+            if len(self.searcher.collection) < 10000:
+                self.searcher.configure(ncells=8)
+                self.searcher.configure(centroid_score_threshold=0.4)
+            elif len(self.searcher.collection) < 100000:
+                self.searcher.configure(ncells=4)
+                self.searcher.configure(centroid_score_threshold=0.45)
+            else:
+                # Otherwise, use defaults for k
+                # TODO: add these values in case the config was changed previously
+                pass
+
+
     def search(
         self,
         db_collection: DbCollection,
         query: Union[str, list[str]],
-        index_name: Optional["str"] = None,
         k: int = 10,
-        force_fast: bool = False,
         zero_index_ranks: bool = False,
         # doc_ids: Optional[List[str]] = None,
     ) -> list[str] | Any | list[Any]:
-        if self.searcher is None or (
-            index_name is not None and self.index_name != index_name
-        ):
-            self._load_searcher(db_collection = db_collection, index_name=index_name, force_fast=force_fast)
+        if self.searcher is None:
+            self._load_searcher(db_collection = db_collection)
+            self.configure_search()
 
         if self.searcher is None:
             res: list[str] = []
