@@ -48,18 +48,16 @@ class ColBertManager:
         experiment = "colbert"
         if pretrained_model_path is None:
             index_path = str(Path(index_root) / index_name)
-            #self.index_path = index_path
+
             ckpt_config = ColBERTConfig.load_from_index(index_path) # type: ignore
             self.config = ckpt_config
             self.run_config = RunConfig(
                 # nranks=n_gpu, root=self.config.root, experiment=self.config.experiment
                 nranks=n_gpu, root=root, experiment=experiment
             )
-            #split_root = pretrained_model_name_or_path.split("/")[:-1]
-            #self.config.index_root = "/".join(split_root)
             self.config.index_root = index_root
-            self.index_name = index_name # self.config.index_name
-            self.checkpoint = self.config.checkpoint
+            self.config.index_name = index_name
+            self.checkpoint_name_or_path = self.config.checkpoint
 
             # self._get_collection_files_from_disk(pretrained_model_name_or_path)
             # TODO: Modify root assignment when loading from HF
@@ -69,8 +67,6 @@ class ColBertManager:
             checkpoint_name_or_path = str(Path(pretrained_model_path))
             ckpt_config = ColBERTConfig.load_from_checkpoint(checkpoint_name_or_path) # type: ignore
 
-            #index_root_ = self.index_root or os.path.join(self.root, self.experiment, 'indexes/')            
-            #index_path_= self.index_path or os.path.join(self.index_root_, self.index_name)            
             self.run_config = RunConfig(
                 nranks=n_gpu, root=root, experiment=experiment
             )
@@ -82,16 +78,13 @@ class ColBertManager:
             # )
             # self.config.index_path = str(
             #     Path(self.config.root)
-            #     / index_name if index_name is not None else self.checkpoint + "new_index"
+            #     / index_name if index_name is not None else self.checkpoint_name_or_path + "new_index"
             # )
             self.config.triples = "unused"
             self.config.queries = "unused"
             self.config.index_root = index_root
             self.config.index_name = index_name
-            #self.config.experiment = "colbert"
-            #self.index_name = index_name if index_name is not None else self.checkpoint + "new_index"
-
-            self.checkpoint: str = checkpoint_name_or_path
+            self.checkpoint_name_or_path: str = checkpoint_name_or_path
 
         # if not training_mode:
         self.inference_ckpt = Checkpoint(self.checkpoint, colbert_config=self.config)
@@ -185,7 +178,7 @@ class ColBertManager:
         # Instruct colbert-ai to disable forking if nranks == 1
         self.config.avoid_fork_if_possible = True
         self.indexer = Indexer(
-            checkpoint=self.checkpoint,
+            checkpoint=self.checkpoint_name_or_path,
             config=self.config,
             verbose=self.verbose,
         )
@@ -193,16 +186,6 @@ class ColBertManager:
 
 
         res_path = self.indexer.index(name=self.config.index_name, collection=db_collection, overwrite=overwrite) # type: ignore
-
-        # self.index_path = str(
-        #     Path(self.run_config.root)
-        #     / Path(self.run_config.experiment)
-        #     / "indexes"
-        #     / self.index_name
-        # )
-        # self.config.root = str(
-        #     Path(self.run_config.root) / Path(self.run_config.experiment) / "indexes"
-        # )
 
         # self._write_collection_files_to_disk()
 
@@ -257,10 +240,6 @@ class ColBertManager:
             # just reindex the whole collection
             self.index(
                 db_collection=db_collection,
-                # combined_documents,
-                # self.pid_docid_map,
-                # docid_metadata_map=self.docid_metadata_map,
-                #index_name=self.index_name,
                 max_document_length=self.config.doc_maxlen,
                 overwrite="force_silent_overwrite",
                 bsize=bsize,
@@ -273,7 +252,7 @@ class ColBertManager:
             updater = IndexUpdater(config=self.config, searcher=searcher, 
                                    # NOTE: don't specify the checkpoint here, otherwise the model is loaded again
                                    # instead, we manually add the embedder to IndexUpdater
-                                   #checkpoint=self.checkpoint
+                                   #checkpoint=self.checkpoint_name_or_path
             
             )
             if True:
@@ -309,21 +288,21 @@ class ColBertManager:
 
     
     def get_searcher_for_index_update(self, db_collection: DbCollection): 
-        if self.loaded_from_index:
-            index_root = self.config.index_root_
-        else:
-            expected_path_segment = Path(self.config.experiment) / "indexes"
-            if str(expected_path_segment) in self.config.root:
-                index_root = self.config.root
-            else:
-                index_root = str(Path(self.config.root) / expected_path_segment)
+        # if self.loaded_from_index:
+        #     index_root = self.config.index_root_
+        # else:
+        #     expected_path_segment = Path(self.config.experiment) / "indexes"
+        #     if str(expected_path_segment) in self.config.root:
+        #         index_root = self.config.root
+        #     else:
+        #         index_root = str(Path(self.config.root) / expected_path_segment)
 
         searcher = Searcher(
-            checkpoint=self.checkpoint,
+            index_root=self.config.index_root_,
+            index=self.config.index_name,
+            checkpoint=self.checkpoint_name_or_path,
             config=None,
             collection=db_collection,
-            index=self.index_name,
-            index_root=index_root,
             verbose=self.verbose,
         )
         return searcher
@@ -331,87 +310,64 @@ class ColBertManager:
 
     def delete_from_index(
         self,
-        document_ids: Union[TypeVar("T"), List[TypeVar("T")]],
-        index_name: Optional[str] = None,
+        passage_ids: list[int],
     ):
-        self.index_name = index_name if index_name is not None else self.index_name
-        if self.index_name is None:
-            print(
-                "Cannot delete from index without an index_name! Please provide one.",
-                "Returning empty results.",
-            )
-            return None
-
-        print(
-            "WARNING: delete_from_index support is currently experimental!",
-            "delete_from_index support will be more thorough in future versions",
-        )
-
         # Initialize the searcher and updater
         searcher = Searcher(
-            checkpoint=self.checkpoint,
+            checkpoint=self.checkpoint_name_or_path,
             config=None,
             collection=self.collection,
-            index=self.index_name,
+            index=self.config.index_name,
             verbose=self.verbose,
         )
         updater = IndexUpdater(
             config=self.config, searcher=searcher, 
             # don't specifiy checkpoint, otherwise the model will be loaded again
-            #checkpoint=self.checkpoint
+            #checkpoint=self.checkpoint_name_or_path
         )
 
-        pids_to_remove = []
-        for pid, docid in self.pid_docid_map.items():
-            if docid in document_ids:
-                pids_to_remove.append(pid)
+        # pids_to_remove = []
+        # for pid, docid in self.pid_docid_map.items():
+        #     if docid in document_ids:
+        #         pids_to_remove.append(pid)
 
-        updater.remove(pids_to_remove)
+        updater.remove(passage_ids)
         updater.persist_to_disk()
 
-        self.collection = [
-            doc for pid, doc in enumerate(self.collection) if pid not in pids_to_remove
-        ]
-        self.pid_docid_map = {
-            pid: docid
-            for pid, docid in self.pid_docid_map.items()
-            if pid not in pids_to_remove
-        }
+        # self.collection = [
+        #     doc for pid, doc in enumerate(self.collection) if pid not in pids_to_remove
+        # ]
+        # self.pid_docid_map = {
+        #     pid: docid
+        #     for pid, docid in self.pid_docid_map.items()
+        #     if pid not in pids_to_remove
+        # }
 
-        if self.docid_metadata_map is not None:
-            self.docid_metadata_map = {
-                docid: metadata
-                for docid, metadata in self.docid_metadata_map.items()
-                if docid not in document_ids
-            }
+        # if self.docid_metadata_map is not None:
+        #     self.docid_metadata_map = {
+        #         docid: metadata
+        #         for docid, metadata in self.docid_metadata_map.items()
+        #         if docid not in document_ids
+        #     }
 
-        self._write_collection_files_to_disk()
+        # self._write_collection_files_to_disk()
 
-        print(f"Successfully deleted documents with these IDs: {document_ids}")
+        print(f"Successfully deleted documents with these IDs: {passage_ids}")
 
     def _load_searcher(
         self,
         db_collection: DbCollection,
     ):
-        if self.index_name is None:
-            print(
-                "Cannot search without an index_name! Please provide one.",
-                "Returning empty results.",
-            )
-            return None
         print(
-            f"Loading searcher for index {self.index_name} for the first time...",
+            f"Loading searcher for index {self.config.index_name} for the first time...",
             "This may take a few seconds",
         )
         self.searcher: Searcher | None = Searcher(
-            checkpoint=self.checkpoint,
+            checkpoint=self.checkpoint_name_or_path,
             config=None,
             collection=db_collection,
-            # use empty collection, it's not really needed
-            #collection=Collection(data='dummy'),
-            #collection=self.collection,
             index_root=self.config.index_root_,
-            index=self.index_name,
+            index=self.config.index_name,
         )
 
         print("Searcher loaded!")
@@ -555,7 +511,7 @@ class ColBertManager:
                 config=training_config,
             )
 
-            trainer.train(checkpoint=self.checkpoint)
+            trainer.train(checkpoint=self.checkpoint_name_or_path)
 
     def _colbert_score(self, Q, D_padded, D_mask):
         if ColBERTConfig().total_visible_gpus > 0:
