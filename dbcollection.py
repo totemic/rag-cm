@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 from typing import Any, overload
 
 import itertools
@@ -23,7 +26,8 @@ def open_sqlite_db(database: str | os.PathLike[str], readonly:bool=False) -> sql
     #con.execute('PRAGMA mmap_size=268435456;')
     cursor.execute('PRAGMA mmap_size=16777216;')
     #print(cursor.execute('PRAGMA compile_options').fetchall())
-    print(cursor.execute('SELECT sqlite_version()').fetchone())
+    (version, ) = cursor.execute('SELECT sqlite_version()').fetchone() 
+    logger.info(f"sqlite3 version: {version}")
     cursor.close()
     return con
 

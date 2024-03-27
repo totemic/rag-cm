@@ -1,3 +1,7 @@
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 from contextlib import asynccontextmanager
 #import asyncio
 # import aiosqlite
@@ -29,12 +33,13 @@ colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("starting")
+    logger.info('starting...')
+    # print("starting")
     # Load resources
     # add what's needed
 
     yield
-    print("shutdown")
+    logger.info('shutting down...')
     # Clean up and release the resources
     #colbert_manager.__del__()
     cursor_readonly.close()

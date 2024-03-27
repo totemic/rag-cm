@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 import math
 # import os
 import time
@@ -91,15 +94,15 @@ class ColBertManager:
             import faiss
 
             if not hasattr(faiss, "StandardGpuResources"):
-                print(
+                logger.warning(
                     "________________________________________________________________________________\n"
-                    "WARNING! You have a GPU available, but only `faiss-cpu` is currently installed.\n",
+                    "You have a GPU available, but only `faiss-cpu` is currently installed.\n",
                     "This means that indexing will be slow. To make use of your GPU.\n"
                     "Please install `faiss-gpu` by running:\n"
                     "pip uninstall --y faiss-cpu & pip install faiss-gpu\n",
                     "________________________________________________________________________________",
                 )
-                print("Will continue with CPU indexing in 5 seconds...")
+                logger.warning("Will continue with CPU indexing in 5 seconds...")
                 time.sleep(5)
 
         self.config.doc_maxlen = max_document_length
@@ -137,7 +140,7 @@ class ColBertManager:
         if self.searcher is None:
             self.searcher = self.load_and_configure_searcher()
 
-        print("Done indexing!")
+        logger.debug("Done indexing!")
 
         return res_path
 
@@ -173,7 +176,7 @@ class ColBertManager:
 
             updater.persist_to_disk()
 
-        print(
+        logger.debug(
             f"Successfully updated index with {new_doc_len} new documents!\n",
             f"New index size: {combined_len}",
         )
@@ -191,7 +194,7 @@ class ColBertManager:
         updater.persist_to_disk()
         self.db_collection.clear_cached_len()
 
-        print(f"Successfully deleted documents with these IDs: {passage_ids}")
+        logger.info(f"Successfully deleted documents with these IDs: {passage_ids}")
 
     def get_index_updater(self) -> IndexUpdater:
         # Initialize the searcher and updater
@@ -305,7 +308,7 @@ class ColBertManager:
     ) -> list[str] | Any | list[Any]:
 
         if self.searcher is None:
-            print("WARNING: No searcher initialized")
+            logger.warning("No searcher initialized")
             res: list[str] = []
             return res
     
@@ -313,8 +316,8 @@ class ColBertManager:
         base_ndocs = self.searcher.config.ndocs
 
         if k > len(self.db_collection):
-            print(
-                "WARNING: k value is larger than the number of documents in the index!",
+            logger.warning(
+                "k value is larger than the number of documents in the index!",
                 f"Lowering k to {len(self.db_collection)}...",
             )
             k = len(self.db_collection)
@@ -451,7 +454,7 @@ class ColBertManager:
                 )
                 max_tokens = max(256, max_tokens)
                 if max_tokens > 300:
-                    print(
+                    logger.warning(
                         f"Your documents are roughly {percentile_90} tokens long at the 90th percentile!",
                         "This is quite long and might slow down reranking!\n",
                         "Provide fewer documents, build smaller chunks or run on GPU",
@@ -473,16 +476,16 @@ class ColBertManager:
         self._set_inference_max_tokens(documents=documents, max_tokens=max_tokens)
 
         if k > len(documents):
-            print("k value cannot be larger than the number of documents! aborting...")
+            logger.error("k value cannot be larger than the number of documents! aborting...")
             return None
         if len(documents) > 1000:
-            print(
+            logger.warning(
                 "Please note ranking in-memory is not optimised for large document counts! ",
                 "Consider building an index and using search instead!",
             )
         if len(set(documents)) != len(documents):
-            print(
-                "WARNING! Your documents have duplicate entries! ",
+            logger.warning(
+                "Your documents have duplicate entries! ",
                 "This will slow down calculation and may yield subpar results",
             )
 
@@ -543,8 +546,7 @@ class ColBertManager:
                         )
                     ),
                 )
-                print("BSIZE:")
-                print(bsize)
+                logger.debug(f"BSIZE: {bsize}")
         embedded_docs: torch.Tensor = self.inference_ckpt.docFromText(
             documents, bsize=bsize, showprogress=verbose
         )[0]
@@ -663,10 +665,10 @@ class ColBertManager:
 
     def clear_encoded_docs(self, force: bool = False):
         if not force:
-            print(
+            logger.warning(
                 "All in-memory encodings will be deleted in 10 seconds, interrupt now if you want to keep them!"
             )
-            print("...")
+            logger.warning("...")
             time.sleep(10)
         del self.in_memory_collection
         del self.in_memory_metadata
@@ -677,6 +679,7 @@ class ColBertManager:
     def __del__(self):
         # Clean up context
         try:
+            logger.info("Clean up context!")
             self.run_context.__exit__(None, None, None)
         except Exception:
-            print("INFO: Tried to clean up context but failed!")
+            logger.warning("Tried to clean up context but failed!")
