@@ -40,41 +40,6 @@ conda remove --name rag --all
 In visual studio code select conda environment 
 ⇧⌘P python: s
 
-
-# Vespa
-
-```
-brew install vespa-cli
-
-vespa config set target local
-vespa clone colbert vespa-colbert && cd vespa-colbert
-
-docker run --detach --name vespa --hostname vespa-container \
-  --publish 8081:8080 --publish 19071:19071 \
-  vespaengine/vespa
-
-docker run --detach --name vespa --hostname vespa-container \
-  --publish 8080:8080 --publish 19071:19071 \
-  vespaengine/vespa
-
-
-
-vespa deploy --wait 300
-
-vespa document ext/1.json
-vespa document ext/2.json
-vespa document ext/3.json
-
-vespa query 'yql=select * from doc where userQuery() or ({targetHits: 100}nearestNeighbor(embedding, q))'\
- 'input.query(q)=embed(e5, "query: space contains many suns")' \
- 'input.query(qt)=embed(colbert, @query)' \
- 'query=space contains many suns'
-
-vespa visit
-
-docker rm -f vespa
-```
-
 # Run
 
 Run FastAPI server
