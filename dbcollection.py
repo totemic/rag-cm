@@ -10,8 +10,11 @@ import sqlite3
 import db
 import os
 
-def open_sqlite_db(database: str | os.PathLike[str]) -> sqlite3.Connection:
-    con: sqlite3.Connection = sqlite3.connect(database)
+def open_sqlite_db(database: str | os.PathLike[str], readonly:bool=False) -> sqlite3.Connection:
+    url = f'file:{database}?mode=ro' if readonly else database
+    # A readonly database can be shared accross multiple threads. 
+    # But doing this for writable databases can lead to data-corruption. 
+    con: sqlite3.Connection = sqlite3.connect(url, check_same_thread=not readonly, uri=readonly)
     cursor: sqlite3.Cursor = con.cursor()
 
     # see https://charlesleifer.com/blog/going-fast-with-sqlite-and-python/
