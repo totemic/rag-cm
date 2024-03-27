@@ -31,8 +31,7 @@ from llama_index.core.node_parser import (
 )
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 #from colbert.data.collection import Collection
-from dbcollection import DbCollection
-
+from dbcollection import ( sql_parameter_marks, DbCollection )
 
 
 def open_sqlite() -> sqlite3.Connection:
@@ -104,10 +103,9 @@ def ingest_documents(input_files: list[str]):
 
     # markdown_node_parser = MarkdownNodeParser()
 
-    cur_docid = 0
-    group_id = 0
-    document_ids:list[str]=[]
-    document_metadatas:list[dict[str,Any]]=[]
+    
+    # document_ids:list[str]=[]
+    # document_metadatas:list[dict[str,Any]]=[]
 
     collection:list[str]=[]
 
@@ -121,6 +119,7 @@ def ingest_documents(input_files: list[str]):
         #markdown_nodes = markdown_node_parser.get_nodes_from_documents(docs)
         base_nodes:list[BaseNode] = sentence_splitter.get_nodes_from_documents(docs)
         for node in base_nodes:
+            group_id = 0
             filename = node.metadata["file_name"]
             if filename in filename_doc_id_map:
                 doc_id = filename_doc_id_map[filename]
@@ -157,11 +156,11 @@ def ingest_documents(input_files: list[str]):
                 next_passage_id = next_passage_id + 1
                 passage_uuid_passage_id_map[node.node_id] = passage_id
 
-                document_ids.append(node.node_id)
-                document_metadatas.append({"filename": node.metadata["file_name"],
-                                           "docid": doc_id,
-                                           "groupid": node.ref_doc_id,
-                                           "next": node.next_node.node_id if node.next_node else None})
+                # document_ids.append(node.node_id)
+                # document_metadatas.append({"filename": node.metadata["file_name"],
+                #                            "docid": doc_id,
+                #                            "groupid": node.ref_doc_id,
+                #                            "next": node.next_node.node_id if node.next_node else None})
                 collection.append(content)
                 passage_ids.append(passage_id)
 
