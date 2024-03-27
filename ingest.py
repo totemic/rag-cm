@@ -73,13 +73,14 @@ def open_sqlite() -> sqlite3.Connection:
 
 con = open_sqlite();
 cursor: sqlite3.Cursor = con.cursor()
-is_empty_db = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is None
 
 db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
-colbert_manager = ColBertManager(INDEX_ROOT_PATH, INDEX_NAME, "colbert-ir/colbertv2.0") if is_empty_db else ColBertManager(INDEX_ROOT_PATH, INDEX_NAME)
-next_passage_id = 0 
-if not is_empty_db:
-    colbert_manager.searcher
+is_empty_db = db_collection.read_len() == 0
+# is_empty_db = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is None
+colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME, "colbert-ir/colbertv2.0"
+                                 ) if is_empty_db else ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
+next_passage_id = 0 if is_empty_db else colbert_manager.get_next_passage_id_for_insert()
+
 
 
 
@@ -94,8 +95,8 @@ if not is_empty_db:
 chunk_size=256+64
 # chunk_overlap = min(chunk_size / 4, min(chunk_size / 2, 64))
 chunk_overlap = 0
-paragrgraph_sep = "\n\n\n"
-sentence_splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, paragraph_separator=paragrgraph_sep)
+paragraph_sep = "\n\n\n"
+sentence_splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, paragraph_separator=paragraph_sep)
 
 # reader_web = SimpleWebPageReader(html_to_text=True)
 # docs_web = reader_web.load_data(urls = [
@@ -113,9 +114,10 @@ reader = SimpleDirectoryReader(input_files=[
 
 cur_docid = 0
 group_id = 0
-collection:list[str]=[]
 document_ids:list[str]=[]
 document_metadatas:list[dict[str,Any]]=[]
+
+collection:list[str]=[]
 
 filename_doc_id_map: dict[str, int] = {}
 group_uuid_group_id_map: dict[str, int] = {}
@@ -135,7 +137,7 @@ for docs in reader.iter_data():
                            f' RETURNING {db.ID}',
                            (filename, ))
             row = cursor.fetchone()
-            (doc_id, ) = row if row else (None, )
+            (doc_id, ) = row if row  is not None else (None, )
             if doc_id is not None:
                 filename_doc_id_map[filename] = doc_id
 
@@ -147,7 +149,7 @@ for docs in reader.iter_data():
                                f' RETURNING {db.ID}',
                                (node.ref_doc_id, doc_id))
                 row = cursor.fetchone()
-                (group_id, ) = row if row else (None, )
+                (group_id, ) = row if row is not None else (None, )
                 if group_id:
                     group_uuid_group_id_map[node.ref_doc_id] = group_id
 
@@ -159,7 +161,7 @@ for docs in reader.iter_data():
                        # Make sure we start passage index at 0, sqlite normaly starts at 1
                        (next_passage_id, content, group_id, prev_passage_id))
         row = cursor.fetchone()
-        (passage_id, ) = row if row else (None, )
+        (passage_id, ) = row if row is not None else (None, )
         if passage_id is not None:
             next_passage_id = next_passage_id + 1
             passage_uuid_passage_id_map[node.node_id] = passage_id
@@ -179,12 +181,6 @@ cursor.execute(f'UPDATE {db.PASSAGE} AS p'
                f' WHERE p2.{db.PREV_ID} = p.{db.ID}'
                f' AND p.{db.NEXT_ID} IS NULL;')
 
-
-con.commit()
-
-
-
-
 # https://jina.ai/news/what-is-colbert-and-late-interaction-and-why-they-matter-in-search/
 #RAG = RAGPretrainedModel.from_pretrained("jinaai/jina-colbert-v1-en")
 # RAG.index(collection=my_documents, index_name="jina_test_index", max_document_length=8190,)
@@ -198,16 +194,14 @@ start_index: float = time.time()
 
 if is_empty_db:
     path_to_index2: str = colbert_manager.index(
-        db_collection=DbCollection(db_path=DB_FILE_PATH, cursor=cursor),
         max_document_length=chunk_size,
         overwrite=True
     )
     is_empty_db = False
 else:
     colbert_manager.add_to_index(
-        new_collection=collection, 
-        new_document_ids=document_ids,
-        new_document_metadatas=document_metadatas,
+        new_passages=collection, 
+        new_passage_ids_for_validation=passage_ids
     )
 
 # RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
@@ -227,6 +221,9 @@ else:
 #     new_document_metadatas=document_metadatas,
 # )
 
+
+# only commit the results to the db if adding to to ColBert index succeeded
+con.commit()
 
 elapsed_index: float = (time.time() - start_index)
 print(elapsed_index)

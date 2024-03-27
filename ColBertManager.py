@@ -25,6 +25,7 @@ from dbcollection import DbCollection
 class ColBertManager:
     def __init__(
         self,
+        db_collection: DbCollection,
         index_root: str,
         index_name: str,
         pretrained_model_path: str | None = None,
@@ -33,16 +34,13 @@ class ColBertManager:
         **kwargs:dict[str, Any],
     ):
         self.verbose = verbose
-        self.collection = None
-        self.pid_docid_map = None
-        self.docid_pid_map = None
-        self.docid_metadata_map = None
-        self.in_memory_docs = []
+
+        #self.in_memory_docs = []
         self.base_model_max_tokens = 512
         if n_gpu == -1:
             n_gpu = 1 if torch.cuda.device_count() == 0 else torch.cuda.device_count()
 
-        self.loaded_from_index = pretrained_model_path is None
+        #self.loaded_from_index = pretrained_model_path is None
 
         root = ".ragindex/"
         experiment = "colbert"
@@ -87,12 +85,14 @@ class ColBertManager:
             self.checkpoint_name_or_path: str = checkpoint_name_or_path
 
         # if not training_mode:
-        self.inference_ckpt = Checkpoint(self.checkpoint, colbert_config=self.config)
+        self.db_collection = db_collection
+        self.searcher = self.load_and_configure_searcher()
+
+        self.inference_ckpt = Checkpoint(self.checkpoint_name_or_path, colbert_config=self.config)
         self.base_model_max_tokens: int = (self.inference_ckpt.bert.config.max_position_embeddings)
 
         self.run_context = Run().context(self.run_config)
         self.run_context.__enter__()  # Manually enter the context
-        self.searcher: Searcher | None = None
 
     # def _invert_pid_docid_map(self) -> Dict[str, int]:
     #     return {v: k for k, v in self.pid_docid_map.items()}
@@ -133,7 +133,6 @@ class ColBertManager:
 
     def index(
         self,
-        db_collection: DbCollection,
         # collection: List[str],
         # pid_docid_map: Dict[int, str],
         # docid_metadata_map: Optional[dict] = None,
@@ -161,16 +160,19 @@ class ColBertManager:
         # self.pid_docid_map = pid_docid_map
         # self.docid_metadata_map = docid_metadata_map
 
+        # we have added items to the list, make sure db_collection fetches the correct amount next time it calculates the entry count
+        passages_count = self.db_collection.read_len()
+
         nbits = 2
-        if len(db_collection) < 5000:
+        if passages_count < 5000:
             nbits = 8
-        elif len(db_collection) < 10000:
+        elif passages_count < 10000:
             nbits = 4
         self.config: ColBERTConfig = ColBERTConfig.from_existing(self.config, ColBERTConfig(nbits=nbits, index_bsize=bsize)) # type: ignore
 
-        if len(db_collection) > 100000:
+        if passages_count > 100000:
             self.config.kmeans_niters = 4
-        elif len(db_collection) > 50000:
+        elif passages_count > 50000:
             self.config.kmeans_niters = 10
         else:
             self.config.kmeans_niters = 20
@@ -185,7 +187,11 @@ class ColBertManager:
         self.indexer.configure(avoid_fork_if_possible=True) # type: ignore
 
 
-        res_path = self.indexer.index(name=self.config.index_name, collection=db_collection, overwrite=overwrite) # type: ignore
+        res_path = self.indexer.index(name=self.config.index_name, collection=self.db_collection, overwrite=overwrite) # type: ignore
+
+        # load searcher right after we created the index
+        if self.searcher is None:
+            self.searcher = self.load_and_configure_searcher()
 
         # self._write_collection_files_to_disk()
 
@@ -195,7 +201,6 @@ class ColBertManager:
 
     def add_to_index(
         self,
-        db_collection: DbCollection,
         new_passages: list[str],
         new_passage_ids_for_validation: list[int],
         # new_documents: List[str],
@@ -232,14 +237,14 @@ class ColBertManager:
         #     doc["content"] for doc in new_documents_with_ids
         # ]
 
-        combined_len = len(db_collection)
+        # we have added items to the list, make sure db_collection fetches the correct amount next time it calculates the entry count
+        combined_len = self.db_collection.read_len()
         new_doc_len = len(new_passages)
         current_len = combined_len - new_doc_len
 
         if current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05:
             # just reindex the whole collection
             self.index(
-                db_collection=db_collection,
                 max_document_length=self.config.doc_maxlen,
                 overwrite="force_silent_overwrite",
                 bsize=bsize,
@@ -248,8 +253,11 @@ class ColBertManager:
             if self.config.index_bsize != bsize:  # Update bsize if it's different
                 self.config.index_bsize = bsize
 
-            searcher: Searcher = self.get_searcher_for_index_update(db_collection=db_collection)
-            updater = IndexUpdater(config=self.config, searcher=searcher, 
+            if self.searcher is None:
+                self.searcher = self.load_and_configure_searcher()
+
+            #searcher: Searcher = self.get_searcher_for_index_update()
+            updater = IndexUpdater(config=self.config, searcher=self.searcher, 
                                    # NOTE: don't specify the checkpoint here, otherwise the model is loaded again
                                    # instead, we manually add the embedder to IndexUpdater
                                    #checkpoint=self.checkpoint_name_or_path
@@ -275,39 +283,13 @@ class ColBertManager:
             f"New index size: {combined_len}",
         )
     
-    def get_next_passage_id_for_insert(self, db_collection: DbCollection) -> int:
-        if self.searcher is None:
-            self._load_searcher(db_collection = db_collection)
-
-        start_pid = 0
-        if (self.searcher is not None):
-            # TODO: this was copied from IndexUpdater.add
-            # ideally this functionality should be exposed by it instead of replicating it here
-            start_pid = len(self.searcher.ranker.doclens)
+    def get_next_passage_id_for_insert(self) -> int:
+        # TODO: this was copied from IndexUpdater.add
+        # ideally this functionality should be exposed by it instead of replicating it here
+        start_pid = len(self.searcher.ranker.doclens) if self.searcher is not None else 0
         return start_pid
 
     
-    def get_searcher_for_index_update(self, db_collection: DbCollection): 
-        # if self.loaded_from_index:
-        #     index_root = self.config.index_root_
-        # else:
-        #     expected_path_segment = Path(self.config.experiment) / "indexes"
-        #     if str(expected_path_segment) in self.config.root:
-        #         index_root = self.config.root
-        #     else:
-        #         index_root = str(Path(self.config.root) / expected_path_segment)
-
-        searcher = Searcher(
-            index_root=self.config.index_root_,
-            index=self.config.index_name,
-            checkpoint=self.checkpoint_name_or_path,
-            config=None,
-            collection=db_collection,
-            verbose=self.verbose,
-        )
-        return searcher
-
-
     def delete_from_index(
         self,
         passage_ids: list[int],
@@ -354,23 +336,55 @@ class ColBertManager:
 
         print(f"Successfully deleted documents with these IDs: {passage_ids}")
 
-    def _load_searcher(
-        self,
-        db_collection: DbCollection,
-    ):
-        print(
-            f"Loading searcher for index {self.config.index_name} for the first time...",
-            "This may take a few seconds",
-        )
-        self.searcher: Searcher | None = Searcher(
+
+    def get_searcher_for_index_update(self): 
+        # if self.loaded_from_index:
+        #     index_root = self.config.index_root_
+        # else:
+        #     expected_path_segment = Path(self.config.experiment) / "indexes"
+        #     if str(expected_path_segment) in self.config.root:
+        #         index_root = self.config.root
+        #     else:
+        #         index_root = str(Path(self.config.root) / expected_path_segment)
+
+        searcher = Searcher(
+            index_root=self.config.index_root_,
+            index=self.config.index_name,
             checkpoint=self.checkpoint_name_or_path,
             config=None,
-            collection=db_collection,
+            collection=self.db_collection,
+            verbose=self.verbose,
+        )
+        return searcher
+
+
+    def load_and_configure_searcher(self) -> Searcher|None:
+        # print(
+        #     f"Loading searcher for index {self.config.index_name} for the first time...",
+        #     "This may take a few seconds",
+        # )
+
+        passages_count = self.db_collection.read_len()
+        if passages_count == 0:
+            # if the database is empty, that means we have no valid index and hence need to postpone loading the searcher until there are entries
+            return None
+    
+        searcher: Searcher = Searcher(
+            checkpoint=self.checkpoint_name_or_path,
+            config=None,
+            collection=self.db_collection,
+            #collection=Collection(data=['dummy']), # see TODO below
             index_root=self.config.index_root_,
             index=self.config.index_name,
         )
+        # TODO: we can't directly assign it in the constructor - if the db is empty it will treat it as None which crashes
+        #searcher.configure(collection=self.db_collection)
 
-        print("Searcher loaded!")
+        self.configure_searcher(searcher, passages_count)
+        return searcher
+
+
+    #     print("Searcher loaded!")
 
     def _upgrade_searcher_maxlen(self, maxlen: int):
         if maxlen < 32:
@@ -381,25 +395,21 @@ class ColBertManager:
         self.searcher.checkpoint.query_tokenizer.query_maxlen = maxlen
 
 
-    def configure_search(self, force_fast: bool = False):
-        if (self.searcher is None):
-             print("WARNING: No searcher loaded, ignoring!")
-             return
-    
+    def configure_searcher(self, searcher: Searcher, passages_count: int, force_fast: bool = False):    
         if force_fast:
             # Use fast settingss
-            self.searcher.configure(ncells=1)
-            self.searcher.configure(centroid_score_threshold=0.5)
-            self.searcher.configure(ndocs=256)
+            searcher.configure(ncells=1)
+            searcher.configure(centroid_score_threshold=0.5)
+            searcher.configure(ndocs=256)
         else:
-            self.searcher.configure(ndocs=1024)
-            self.searcher.configure(ncells=16)
-            if len(self.searcher.collection) < 10000:
-                self.searcher.configure(ncells=8)
-                self.searcher.configure(centroid_score_threshold=0.4)
-            elif len(self.searcher.collection) < 100000:
-                self.searcher.configure(ncells=4)
-                self.searcher.configure(centroid_score_threshold=0.45)
+            searcher.configure(ndocs=1024)
+            searcher.configure(ncells=16)
+            if passages_count < 10000:
+                searcher.configure(ncells=8)
+                searcher.configure(centroid_score_threshold=0.4)
+            elif passages_count < 100000:
+                searcher.configure(ncells=4)
+                searcher.configure(centroid_score_threshold=0.45)
             else:
                 # Otherwise, use defaults for k
                 # TODO: add these values in case the config was changed previously
@@ -408,17 +418,14 @@ class ColBertManager:
 
     def search(
         self,
-        db_collection: DbCollection,
         query: Union[str, list[str]],
         k: int = 10,
         zero_index_ranks: bool = False,
         # doc_ids: Optional[List[str]] = None,
     ) -> list[str] | Any | list[Any]:
-        if self.searcher is None:
-            self._load_searcher(db_collection = db_collection)
-            self.configure_search()
 
         if self.searcher is None:
+            print("WARNING: No searcher initialized")
             res: list[str] = []
             return res
     
@@ -431,12 +438,12 @@ class ColBertManager:
         base_ncells = self.searcher.config.ncells
         base_ndocs = self.searcher.config.ndocs
 
-        if k > len(self.searcher.collection):
+        if k > len(self.db_collection):
             print(
                 "WARNING: k value is larger than the number of documents in the index!",
-                f"Lowering k to {len(self.searcher.collection)}...",
+                f"Lowering k to {len(self.db_collection)}...",
             )
-            k = len(self.searcher.collection)
+            k = len(self.db_collection)
 
         # For smaller collections, we need a higher ncells value to ensure we return enough results
         if k > (32 * self.searcher.config.ncells):
@@ -458,7 +465,7 @@ class ColBertManager:
         for result in results:
             result_for_query = []
             passage_ids: list[int] = [passage_id for passage_id, rank, score in zip(*result)]
-            passages = db_collection.get_passages_by_id(passage_ids)
+            passages = self.db_collection.get_passages_by_id(passage_ids)
             for passage_id, rank, score, passage_res in zip(*result, passages):
                 (passage_id1, passage, ) = passage_res
                 # document_id = self.pid_docid_map[passage_id]
@@ -488,7 +495,7 @@ class ColBertManager:
             return to_return[0]
         return to_return
 
-    def _search(self, query: str, k: int, pids: Optional[List[int]] = None):
+    def _search(self, query: str, k: int, pids: Optional[list[int]] = None):
         return self.searcher.search(query, k=k, pids=pids)
 
     def _batch_search(self, query: list[str], k: int):

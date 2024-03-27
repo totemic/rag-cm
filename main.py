@@ -15,7 +15,12 @@ from constants import (
 )
 from dbcollection import DbCollection
 
-colbert_manager = ColBertManager(INDEX_ROOT_PATH, INDEX_NAME)
+# TODO: replace with async version
+con: sqlite3.Connection = sqlite3.connect(DB_FILE_PATH)
+cursor: sqlite3.Cursor = con.cursor()
+db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
+colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
+
 # RAG: RAGPretrainedModel = RAGPretrainedModel.from_index(INDEX_PATH_RAGA)
 # results = RAG.search(query="Test", k=3)
 
@@ -59,11 +64,7 @@ async def db_test(conn: aiosqlite.Connection) -> list[Any]:
 @app.get("/query")
 async def query(q: str, count: int=3) -> Any | list[Any]:
     start_search = time.time()
-    # TODO: replace with async version
-    con: sqlite3.Connection = sqlite3.connect(DB_FILE_PATH)
-    cursor: sqlite3.Cursor = con.cursor()
-    db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
-    results = colbert_manager.search(db_collection = db_collection, query=q, k=count)
+    results = colbert_manager.search(query=q, k=count)
     # results = RAG.search(query=q, k=count)
     elapsed_search = (time.time() - start_search)
     print(elapsed_search)

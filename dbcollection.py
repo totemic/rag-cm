@@ -72,19 +72,23 @@ class DbCollection(Collection):
 
     def __getitem__(self, item_number: int) -> str | None:
         row = self.get_or_make_db().execute(f'SELECT * FROM {db.PASSAGE} WHERE {db.ID} = ?', (item_number,)).fetchone()
-        (text, ) = row if row else (None, )
+        (text, ) = row if row  is not None else (None, )
         return text
     
-    def __read_len(self) -> int:
+    def read_len(self) -> int:
         row = self.get_or_make_db().execute(f'SELECT count(*) FROM {db.PASSAGE}').fetchone()
-        (self.__len, ) = row if row else (0, )
+        # also update the cached value
+        (self.__len, ) = row if row is not None else (0, )
         return self.__len
 
     def __len__(self) -> int:
         if self.__len is None:
-            return self.__read_len()
+            return self.read_len()
         else:
             return self.__len
+    
+    def clear_cached_len(self):
+        self.__len = None
 
     # def _load_file(self, path):
     #     self.path = path
