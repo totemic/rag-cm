@@ -212,6 +212,13 @@ def ingest_documents(input_files: list[str]):
     con.commit()
     return
 
+def delete_document_passages(passage_ids: list[int]):
+    cursor.execute(f'DELETE FROM {db.PASSAGE} AS p'
+                   f' WHERE p.{db.ID} IN ({sql_parameter_marks(passage_ids)})', passage_ids)
+    colbert_manager.remove_from_index(passage_ids)
+    con.commit()
+
+
 ingest_documents([
         "test/test.md"
         ])
@@ -223,8 +230,15 @@ ingest_documents([
         "test/test2.md",
         ])
 
-results = colbert_manager.search(query="what's the best passge for number 18?", k=3)
-print(results)
+print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
+
+delete_document_passages(passage_ids=[2, 3])
+
+print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
+
+delete_document_passages(passage_ids=[18, 16])
+
+print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
 
 cursor.close()
 con.close()

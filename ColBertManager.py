@@ -165,23 +165,8 @@ class ColBertManager:
             if self.config.index_bsize != bsize:  # Update bsize if it's different
                 self.config.index_bsize = bsize
 
-            if self.searcher is None:
-                self.searcher = self.load_and_configure_searcher()
-
-            #searcher: Searcher = self.get_searcher_for_index_update()
-            updater = IndexUpdater(config=self.config, searcher=self.searcher, 
-                                   # TODO: don't specify the checkpoint here, otherwise the model is loaded again
-                                   # instead, we manually add the embedder to IndexUpdater
-                                   #checkpoint=self.checkpoint_name_or_path
-            
-            )
-            if True:
-                # TODO: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
-                updater.has_checkpoint = True
-                updater.checkpoint = self.searcher.checkpoint # type: ignore
-                updater.encoder = CollectionEncoder(config=self.config, checkpoint = self.searcher.checkpoint) # type: ignore
-
-            passage_ids: List[int] = updater.add(new_passages) # type: ignore
+            updater: IndexUpdater = self.get_index_updater()
+            passage_ids: List[int] = updater.add(passages) # type: ignore
 
             # TODO: compare returned passage_ids with the one we generated ourselves. 
             # If they don't match for some reason, we might have to recreate the entire index
@@ -200,49 +185,45 @@ class ColBertManager:
         return start_pid
 
     
-    def delete_from_index(
-        self,
-        passage_ids: list[int],
-    ):
-        # Initialize the searcher and updater
-        searcher = Searcher(
-            checkpoint=self.checkpoint_name_or_path,
-            config=None,
-            collection=self.collection,
-            index=self.config.index_name,
-            verbose=self.verbose,
-        )
-        updater = IndexUpdater(
-            config=self.config, searcher=searcher, 
-            # don't specifiy checkpoint, otherwise the model will be loaded again
-            #checkpoint=self.checkpoint_name_or_path
-        )
-
-        # pids_to_remove = []
-        # for pid, docid in self.pid_docid_map.items():
-        #     if docid in document_ids:
-        #         pids_to_remove.append(pid)
-
+    def remove_from_index(self, passage_ids: list[int]):
+        updater: IndexUpdater = self.get_index_updater()
         updater.remove(passage_ids)
         updater.persist_to_disk()
-
-        # self.collection = [
-        #     doc for pid, doc in enumerate(self.collection) if pid not in pids_to_remove
-        # ]
-        # self.pid_docid_map = {
-        #     pid: docid
-        #     for pid, docid in self.pid_docid_map.items()
-        #     if pid not in pids_to_remove
-        # }
-
-        # if self.docid_metadata_map is not None:
-        #     self.docid_metadata_map = {
-        #         docid: metadata
-        #         for docid, metadata in self.docid_metadata_map.items()
-        #         if docid not in document_ids
-        #     }
+        self.db_collection.clear_cached_len()
 
         print(f"Successfully deleted documents with these IDs: {passage_ids}")
+
+    def get_index_updater(self) -> IndexUpdater:
+        # Initialize the searcher and updater
+        # searcher = Searcher(
+        #     checkpoint=self.checkpoint_name_or_path,
+        #     config=None,
+        #     collection=self.db_collection,
+        #     index=self.config.index_name,
+        #     verbose=self.verbose,
+        # )
+        # updater = IndexUpdater(
+        #     config=self.config, searcher=searcher, 
+        #     # don't specifiy checkpoint, otherwise the model will be loaded again
+        #     #checkpoint=self.checkpoint_name_or_path
+        # )
+
+        if self.searcher is None:
+            self.searcher: Searcher | None = self.load_and_configure_searcher()
+
+        #searcher: Searcher = self.get_searcher_for_index_update()
+        updater = IndexUpdater(config=self.config, searcher=self.searcher, 
+                                # TODO: don't specify the checkpoint here, otherwise the model is loaded again
+                                # instead, we manually add the embedder to IndexUpdater
+                                #checkpoint=self.checkpoint_name_or_path
+        
+        )
+        if True:
+            # TODO: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
+            updater.has_checkpoint = True
+            updater.checkpoint = self.searcher.checkpoint # type: ignore
+            updater.encoder = CollectionEncoder(config=self.config, checkpoint = self.searcher.checkpoint) # type: ignore
+        return updater
 
 
     # def get_searcher_for_index_update(self): 
