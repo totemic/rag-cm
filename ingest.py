@@ -35,7 +35,7 @@ from llama_index.core.node_parser import (
 )
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 #from colbert.data.collection import Collection
-from dbcollection import ( open_sqlite_db, create_tables_if_missing, DbCollection )
+from dbcollection import ( open_sqlite_db, create_tables_if_missing, sql_parameter_marks, DbCollection )
 
 con = open_sqlite_db(DB_FILE_PATH)
 create_tables_if_missing(con)
