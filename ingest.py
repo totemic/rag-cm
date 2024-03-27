@@ -184,8 +184,8 @@ def ingest_documents(input_files: list[str]):
         )
     else:
         colbert_manager.add_to_index(
-            new_passages=collection, 
-            new_passage_ids_for_validation=passage_ids
+            passages=collection, 
+            passage_ids_for_validation=passage_ids
         )
 
     # RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")

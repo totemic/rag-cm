@@ -143,15 +143,15 @@ class ColBertManager:
 
     def add_to_index(
         self,
-        new_passages: list[str],
-        new_passage_ids_for_validation: list[int],
+        passages: list[str],
+        passage_ids_for_validation: list[int],
         bsize: int = 32,
         allow_reindex:bool = True
     ) -> None:
 
         # we have added items to the list, make sure db_collection fetches the correct amount next time it calculates the entry count
         combined_len = self.db_collection.read_len()
-        new_doc_len = len(new_passages)
+        new_doc_len = len(passages)
         current_len = combined_len - new_doc_len
 
         if allow_reindex and (current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05):
@@ -266,13 +266,13 @@ class ColBertManager:
 
     #     print("Searcher loaded!")
 
-    def _upgrade_searcher_maxlen(self, maxlen: int):
+    def _upgrade_searcher_maxlen(self, searcher: Searcher, maxlen: int):
         if maxlen < 32:
             # Keep maxlen stable at 32 for short queries for easier visualisation
             maxlen = 32
         maxlen = min(maxlen, self.base_model_max_tokens)
-        self.searcher.config.query_maxlen = maxlen
-        self.searcher.checkpoint.query_tokenizer.query_maxlen = maxlen
+        searcher.config.query_maxlen = maxlen
+        searcher.checkpoint.query_tokenizer.query_maxlen = maxlen
 
 
     def configure_searcher(self, searcher: Searcher, passages_count: int, force_fast: bool = False):    
@@ -327,11 +327,11 @@ class ColBertManager:
 
         if isinstance(query, str):
             query_length = int(len(query.split(" ")) * 1.35)
-            self._upgrade_searcher_maxlen(query_length)
+            self._upgrade_searcher_maxlen(self.searcher, query_length)
             results = [self._search(query, k, passage_ids_to_search)]
         else:
             longest_query_length = max([int(len(x.split(" ")) * 1.35) for x in query])
-            self._upgrade_searcher_maxlen(longest_query_length)
+            self._upgrade_searcher_maxlen(self.searcher, longest_query_length)
             results = self._batch_search(query, k)
 
         to_return = []
@@ -367,6 +367,8 @@ class ColBertManager:
         return self.searcher.search(query, k=k, pids=passage_ids_to_search)
 
     def _batch_search(self, query: list[str], k: int):
+        if self.searcher is None:
+            return [], [], []
         queries = {i: x for i, x in enumerate(query)}
         results = self.searcher.search_all(queries, k=k)
         results = [
