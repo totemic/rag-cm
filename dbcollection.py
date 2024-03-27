@@ -8,6 +8,43 @@ from colbert.data import Collection
 from colbert.infra.run import Run
 import sqlite3
 import db
+import os
+
+def open_sqlite_db(database: str | os.PathLike[str]) -> sqlite3.Connection:
+    con: sqlite3.Connection = sqlite3.connect(database)
+    cursor: sqlite3.Cursor = con.cursor()
+
+    # see https://charlesleifer.com/blog/going-fast-with-sqlite-and-python/
+    cursor.execute('PRAGMA journal_mode=wal;')
+    # 256 MB
+    #con.execute('PRAGMA mmap_size=268435456;')
+    cursor.execute('PRAGMA mmap_size=16777216;')
+    #print(cursor.execute('PRAGMA compile_options').fetchall())
+    print(cursor.execute('SELECT sqlite_version()').fetchone())
+    cursor.close()
+    return con
+
+def create_tables_if_missing(con: sqlite3.Connection):
+    cursor: sqlite3.Cursor = con.cursor()
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.DOCUMENT}(\
+                {db.ID} INTEGER PRIMARY KEY ASC\
+                ,{db.FILE_NAME} TEXT\
+                );")
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.PASSAGE_GROUP}(\
+                {db.ID} INTEGER PRIMARY KEY ASC\
+                ,{db.NAME} TEXT\
+                ,{db.DOC_ID} INTEGER REFERENCES {db.DOCUMENT}({db.ID})\
+                );")
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.PASSAGE}(\
+                    {db.ID} INTEGER PRIMARY KEY ASC\
+                    ,{db.CONTENT} TEXT\
+                    ,{db.GROUP_ID} INTEGER REFERENCES {db.PASSAGE_GROUP}({db.ID})\
+                    ,{db.PREV_ID} INTEGER REFERENCES {db.PASSAGE}({db.ID}) ON DELETE SET NULL ON UPDATE CASCADE\
+                    ,{db.NEXT_ID} INTEGER REFERENCES {db.PASSAGE}({db.ID}) ON DELETE SET NULL ON UPDATE CASCADE\
+                );")
+    cursor.close()
+    con.commit()
+
 
 class CursorColumnIterator(Iterator[Any]):
     def __init__(self, cursor: sqlite3.Cursor, column: int):

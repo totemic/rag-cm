@@ -31,46 +31,10 @@ from llama_index.core.node_parser import (
 )
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 #from colbert.data.collection import Collection
-from dbcollection import ( sql_parameter_marks, DbCollection )
+from dbcollection import ( open_sqlite_db, create_tables_if_missing, DbCollection )
 
-
-def open_sqlite() -> sqlite3.Connection:
-    con: sqlite3.Connection = sqlite3.connect(DB_FILE_PATH)
-    cursor: sqlite3.Cursor = con.cursor()
-
-    # see https://charlesleifer.com/blog/going-fast-with-sqlite-and-python/
-    cursor.execute('PRAGMA journal_mode=wal;')
-    # 256 MB
-    #con.execute('PRAGMA mmap_size=268435456;')
-    cursor.execute('PRAGMA mmap_size=16777216;')
-    #print(cursor.execute('PRAGMA compile_options').fetchall())
-    print(cursor.execute('SELECT sqlite_version()').fetchone())
-
-
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.DOCUMENT}(\
-                {db.ID} INTEGER PRIMARY KEY ASC\
-                ,{db.FILE_NAME} TEXT\
-                );")
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.PASSAGE_GROUP}(\
-                {db.ID} INTEGER PRIMARY KEY ASC\
-                ,{db.NAME} TEXT\
-                ,{db.DOC_ID} INTEGER REFERENCES {db.DOCUMENT}({db.ID})\
-                );")
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.PASSAGE}(\
-                    {db.ID} INTEGER PRIMARY KEY ASC\
-                    ,{db.CONTENT} TEXT\
-                    ,{db.GROUP_ID} INTEGER REFERENCES {db.PASSAGE_GROUP}({db.ID})\
-                    ,{db.PREV_ID} INTEGER REFERENCES {db.PASSAGE}({db.ID}) ON DELETE SET NULL ON UPDATE CASCADE\
-                    ,{db.NEXT_ID} INTEGER REFERENCES {db.PASSAGE}({db.ID}) ON DELETE SET NULL ON UPDATE CASCADE\
-                );")
-
-    cursor.close()
-    con.commit()
-    return con
-
-
-
-con = open_sqlite();
+con = open_sqlite_db(DB_FILE_PATH)
+create_tables_if_missing(con)
 cursor: sqlite3.Cursor = con.cursor()
 
 db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
@@ -242,9 +206,3 @@ print(colbert_manager.search(query="what's the best passge for number 18?", k=3)
 
 cursor.close()
 con.close()
-
-
-
-
-
-

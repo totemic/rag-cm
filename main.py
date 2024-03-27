@@ -13,10 +13,10 @@ from constants import (
     INDEX_NAME,
     # INDEX_PATH_RAGA
 )
-from dbcollection import DbCollection
+from dbcollection import (open_sqlite_db, DbCollection)
 
 # TODO: replace with async version
-con: sqlite3.Connection = sqlite3.connect(DB_FILE_PATH)
+con: sqlite3.Connection = open_sqlite_db(DB_FILE_PATH)
 cursor: sqlite3.Cursor = con.cursor()
 db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
 colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
