@@ -40,8 +40,7 @@ class ColBertManager:
         if n_gpu == -1:
             n_gpu = 1 if torch.cuda.device_count() == 0 else torch.cuda.device_count()
 
-        #self.loaded_from_index = pretrained_model_path is None
-
+        # hard-code these here. We supply more specific path values througn index_root and index_name which override these in most uses
         root = ".ragindex/"
         experiment = "colbert"
         if pretrained_model_path is None:
@@ -50,18 +49,15 @@ class ColBertManager:
             ckpt_config = ColBERTConfig.load_from_index(index_path) # type: ignore
             self.config = ckpt_config
             self.run_config = RunConfig(
-                # nranks=n_gpu, root=self.config.root, experiment=self.config.experiment
                 nranks=n_gpu, root=root, experiment=experiment
             )
             self.config.index_root = index_root
             self.config.index_name = index_name
             self.checkpoint_name_or_path = self.config.checkpoint
 
-            # self._get_collection_files_from_disk(pretrained_model_name_or_path)
             # TODO: Modify root assignment when loading from HF
 
         else:
-            #index_root = index_root if index_root is not None else ".ragindex/"
             checkpoint_name_or_path = str(Path(pretrained_model_path))
             ckpt_config = ColBERTConfig.load_from_checkpoint(checkpoint_name_or_path) # type: ignore
 
@@ -70,21 +66,12 @@ class ColBertManager:
             )
             local_config = ColBERTConfig(**kwargs) # type: ignore
             self.config = ColBERTConfig.from_existing(ckpt_config, local_config,) # type: ignore
-            #self.config.root = index_root
-            # self.config.root = str(
-            #     Path(self.run_config.root) / Path(self.run_config.experiment) / "indexes"
-            # )
-            # self.config.index_path = str(
-            #     Path(self.config.root)
-            #     / index_name if index_name is not None else self.checkpoint_name_or_path + "new_index"
-            # )
             self.config.triples = "unused"
             self.config.queries = "unused"
             self.config.index_root = index_root
             self.config.index_name = index_name
             self.checkpoint_name_or_path: str = checkpoint_name_or_path
 
-        # if not training_mode:
         self.db_collection = db_collection
         self.searcher = self.load_and_configure_searcher()
 
@@ -94,48 +81,8 @@ class ColBertManager:
         self.run_context = Run().context(self.run_config)
         self.run_context.__enter__()  # Manually enter the context
 
-    # def _invert_pid_docid_map(self) -> Dict[str, int]:
-    #     return {v: k for k, v in self.pid_docid_map.items()}
-
-    # def _get_collection_files_from_disk(self, index_path: str):
-    #     self.collection = srsly.read_json(index_path / "collection.json")
-    #     if os.path.exists(str(index_path / "docid_metadata_map.json")):
-    #         self.docid_metadata_map = srsly.read_json(
-    #             str(index_path / "docid_metadata_map.json")
-    #         )
-    #     else:
-    #         self.docid_metadata_map = None
-
-    #     try:
-    #         self.pid_docid_map = srsly.read_json(str(index_path / "pid_docid_map.json"))
-    #     except FileNotFoundError as err:
-    #         raise FileNotFoundError(
-    #             "ERROR: Could not load pid_docid_map from index!",
-    #             "This is likely because you are loading an older, incompatible index.",
-    #         ) from err
-
-    #     # convert all keys to int when loading from file because saving converts to str
-    #     self.pid_docid_map = {
-    #         int(key): value for key, value in self.pid_docid_map.items()
-    #     }
-    #     self.docid_pid_map = self._invert_pid_docid_map()
-
-    # def _write_collection_files_to_disk(self):
-    #     srsly.write_json(self.index_path + "/collection.json", self.collection)
-    #     srsly.write_json(self.index_path + "/pid_docid_map.json", self.pid_docid_map)
-    #     if self.docid_metadata_map is not None:
-    #         srsly.write_json(
-    #             self.index_path + "/docid_metadata_map.json", self.docid_metadata_map
-    #         )
-
-    #     # update the in-memory inverted map every time the files are saved to disk
-    #     self.docid_pid_map = self._invert_pid_docid_map()
-
     def index(
         self,
-        # collection: List[str],
-        # pid_docid_map: Dict[int, str],
-        # docid_metadata_map: Optional[dict] = None,
         max_document_length: int = 256,
         overwrite: Union[bool, str] = "reuse",
         bsize: int = 32,
@@ -154,11 +101,8 @@ class ColBertManager:
                 )
                 print("Will continue with CPU indexing in 5 seconds...")
                 time.sleep(5)
-        self.config.doc_maxlen = max_document_length
 
-        # self.collection = collection
-        # self.pid_docid_map = pid_docid_map
-        # self.docid_metadata_map = docid_metadata_map
+        self.config.doc_maxlen = max_document_length
 
         # we have added items to the list, make sure db_collection fetches the correct amount next time it calculates the entry count
         passages_count = self.db_collection.read_len()
@@ -193,8 +137,6 @@ class ColBertManager:
         if self.searcher is None:
             self.searcher = self.load_and_configure_searcher()
 
-        # self._write_collection_files_to_disk()
-
         print("Done indexing!")
 
         return res_path
@@ -203,46 +145,16 @@ class ColBertManager:
         self,
         new_passages: list[str],
         new_passage_ids_for_validation: list[int],
-        # new_documents: List[str],
-        # new_pid_docid_map: Dict[int, str],
-        # new_docid_metadata_map: Optional[List[dict]] = None,
         bsize: int = 32,
+        allow_reindex:bool = True
     ) -> None:
-            # if not self.collection:
-            #     collection_path = Path(index_root) / self.index_name / "collection.json"
-            #     if collection_path.exists():
-            #         self._get_collection_files_from_disk(
-            #             str(Path(index_root) / self.index_name)
-            #         )
-
-        # current_len = len(searcher.collection)
-        # new_doc_len = len(new_documents)
-        # new_documents_with_ids = [
-        #     {"content": doc, "document_id": new_pid_docid_map[pid]}
-        #     for pid, doc in enumerate(new_documents)
-        #     if new_pid_docid_map[pid] not in self.pid_docid_map.values()
-        # ]
-
-        # if new_docid_metadata_map is not None:
-        #     self.docid_metadata_map = self.docid_metadata_map or defaultdict(
-        #         lambda: None
-        #     )
-        #     self.docid_metadata_map.update(new_docid_metadata_map)
-
-        # max_existing_pid = max(self.pid_docid_map.keys(), default=-1)
-        # for idx, doc in enumerate(new_documents_with_ids, start=max_existing_pid + 1):
-        #     self.pid_docid_map[idx] = doc["document_id"]
-
-        # combined_documents = self.collection + [
-        #     doc["content"] for doc in new_documents_with_ids
-        # ]
 
         # we have added items to the list, make sure db_collection fetches the correct amount next time it calculates the entry count
         combined_len = self.db_collection.read_len()
         new_doc_len = len(new_passages)
         current_len = combined_len - new_doc_len
 
-        if current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05:
+        if allow_reindex and (current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05):
             # just reindex the whole collection
             self.index(
                 max_document_length=self.config.doc_maxlen,
@@ -275,8 +187,6 @@ class ColBertManager:
             # If they don't match for some reason, we might have to recreate the entire index
 
             updater.persist_to_disk()
-
-            # self._write_collection_files_to_disk()
 
         print(
             f"Successfully updated index with {new_doc_len} new documents!\n",
@@ -332,30 +242,19 @@ class ColBertManager:
         #         if docid not in document_ids
         #     }
 
-        # self._write_collection_files_to_disk()
-
         print(f"Successfully deleted documents with these IDs: {passage_ids}")
 
 
-    def get_searcher_for_index_update(self): 
-        # if self.loaded_from_index:
-        #     index_root = self.config.index_root_
-        # else:
-        #     expected_path_segment = Path(self.config.experiment) / "indexes"
-        #     if str(expected_path_segment) in self.config.root:
-        #         index_root = self.config.root
-        #     else:
-        #         index_root = str(Path(self.config.root) / expected_path_segment)
-
-        searcher = Searcher(
-            index_root=self.config.index_root_,
-            index=self.config.index_name,
-            checkpoint=self.checkpoint_name_or_path,
-            config=None,
-            collection=self.db_collection,
-            verbose=self.verbose,
-        )
-        return searcher
+    # def get_searcher_for_index_update(self): 
+    #     searcher = Searcher(
+    #         index_root=self.config.index_root_,
+    #         index=self.config.index_name,
+    #         checkpoint=self.checkpoint_name_or_path,
+    #         config=None,
+    #         collection=self.db_collection,
+    #         verbose=self.verbose,
+    #     )
+    #     return searcher
 
 
     def load_and_configure_searcher(self) -> Searcher|None:
@@ -421,7 +320,7 @@ class ColBertManager:
         query: Union[str, list[str]],
         k: int = 10,
         zero_index_ranks: bool = False,
-        # doc_ids: Optional[List[str]] = None,
+        passage_ids_to_search: Optional[list[int]] = None
     ) -> list[str] | Any | list[Any]:
 
         if self.searcher is None:
@@ -429,12 +328,6 @@ class ColBertManager:
             res: list[str] = []
             return res
     
-        pids = None
-        # if doc_ids is not None:
-        #     pids = []
-        #     for doc_id in doc_ids:
-        #         pids.extend(self.docid_pid_map[doc_id])
-
         base_ncells = self.searcher.config.ncells
         base_ndocs = self.searcher.config.ndocs
 
@@ -454,7 +347,7 @@ class ColBertManager:
         if isinstance(query, str):
             query_length = int(len(query.split(" ")) * 1.35)
             self._upgrade_searcher_maxlen(query_length)
-            results = [self._search(query, k, pids)]
+            results = [self._search(query, k, passage_ids_to_search)]
         else:
             longest_query_length = max([int(len(x.split(" ")) * 1.35) for x in query])
             self._upgrade_searcher_maxlen(longest_query_length)
@@ -468,20 +361,12 @@ class ColBertManager:
             passages = self.db_collection.get_passages_by_id(passage_ids)
             for passage_id, rank, score, passage_res in zip(*result, passages):
                 (passage_id1, passage, ) = passage_res
-                # document_id = self.pid_docid_map[passage_id]
                 result_dict = {
-                    # "content": self.collection[passage_id],
                     "content": passage,
                     "score": score,
                     "rank": rank - 1 if zero_index_ranks else rank,
-                    # "document_id": document_id,
                     "passage_id": passage_id,
                 }
-
-                # if self.docid_metadata_map is not None:
-                #     if document_id in self.docid_metadata_map:
-                #         doc_metadata = self.docid_metadata_map[document_id]
-                #         result_dict["document_metadata"] = doc_metadata
 
                 result_for_query.append(result_dict)
 
@@ -495,8 +380,10 @@ class ColBertManager:
             return to_return[0]
         return to_return
 
-    def _search(self, query: str, k: int, pids: Optional[list[int]] = None):
-        return self.searcher.search(query, k=k, pids=pids)
+    def _search(self, query: str, k: int, passage_ids_to_search: Optional[list[int]] = None):
+        if self.searcher is None:
+            return [], [], []
+        return self.searcher.search(query, k=k, pids=passage_ids_to_search)
 
     def _batch_search(self, query: list[str], k: int):
         queries = {i: x for i, x in enumerate(query)}

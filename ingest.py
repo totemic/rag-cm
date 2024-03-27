@@ -183,7 +183,6 @@ def ingest_documents(input_files: list[str]):
             max_document_length=chunk_size,
             overwrite=True
         )
-        is_empty_db = False
     else:
         colbert_manager.add_to_index(
             new_passages=collection, 
