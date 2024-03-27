@@ -258,16 +258,16 @@ class ColBertManager:
 
             #searcher: Searcher = self.get_searcher_for_index_update()
             updater = IndexUpdater(config=self.config, searcher=self.searcher, 
-                                   # NOTE: don't specify the checkpoint here, otherwise the model is loaded again
+                                   # TODO: don't specify the checkpoint here, otherwise the model is loaded again
                                    # instead, we manually add the embedder to IndexUpdater
                                    #checkpoint=self.checkpoint_name_or_path
             
             )
             if True:
-                # NOTE: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
+                # TODO: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
                 updater.has_checkpoint = True
-                updater.checkpoint = searcher.checkpoint # type: ignore
-                updater.encoder = CollectionEncoder(config=self.config, checkpoint = searcher.checkpoint) # type: ignore
+                updater.checkpoint = self.searcher.checkpoint # type: ignore
+                updater.encoder = CollectionEncoder(config=self.config, checkpoint = self.searcher.checkpoint) # type: ignore
 
             passage_ids: List[int] = updater.add(new_passages) # type: ignore
 
