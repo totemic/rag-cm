@@ -1,20 +1,20 @@
 import logging
 logger = logging.getLogger(__name__)
-from typing import Any, overload
+from typing import Any
 import itertools
 from collections.abc import Iterator
 from colbert.data import Collection
 from colbert.infra.run import Run
-import sqlite3
+from sqlite3 import (connect as sql_connect, Connection, Cursor)
 import db
 import os
 
-def open_sqlite_db(database: str | os.PathLike[str], readonly:bool=False) -> sqlite3.Connection:
+def open_sqlite_db(database: str | os.PathLike[str], readonly:bool=False) -> Connection:
     url = f'file:{database}?mode=ro' if readonly else database
     # A readonly database can be shared accross multiple threads. 
     # But doing this for writable databases can lead to data-corruption. 
-    con: sqlite3.Connection = sqlite3.connect(url, check_same_thread=not readonly, uri=readonly)
-    cursor: sqlite3.Cursor = con.cursor()
+    con: Connection = sql_connect(url, check_same_thread=not readonly, uri=readonly)
+    cursor: Cursor = con.cursor()
 
     # see https://charlesleifer.com/blog/going-fast-with-sqlite-and-python/
     cursor.execute('PRAGMA journal_mode=wal;')
@@ -27,8 +27,8 @@ def open_sqlite_db(database: str | os.PathLike[str], readonly:bool=False) -> sql
     cursor.close()
     return con
 
-def create_tables_if_missing(con: sqlite3.Connection):
-    cursor: sqlite3.Cursor = con.cursor()
+def create_tables_if_missing(con: Connection):
+    cursor: Cursor = con.cursor()
     cursor.execute(f"CREATE TABLE IF NOT EXISTS {db.DOCUMENT}(\
                 {db.ID} INTEGER PRIMARY KEY ASC\
                 ,{db.FILE_NAME} TEXT\
@@ -50,7 +50,7 @@ def create_tables_if_missing(con: sqlite3.Connection):
 
 
 class CursorColumnIterator(Iterator[Any]):
-    def __init__(self, cursor: sqlite3.Cursor, column: int):
+    def __init__(self, cursor: Cursor, column: int):
         self.cursor = cursor
         self.column = column
 
@@ -91,23 +91,23 @@ class DbCollection(Collection):
     # TODO: We need to store the connections in a class level map. 
     # We can't store them inside the instances, since this causes an issue when ColBert is attempting to make a pickle serialization
     # This should ideally be handled differently by the ColBERT library
-    connection_cache: dict[str, sqlite3.Cursor] = {}
-    def __init__(self, db_path: str, cursor: sqlite3.Cursor, len: int | None = None) -> None:
+    connection_cache: dict[str, Cursor] = {}
+    def __init__(self, db_path: str, cursor: Cursor, len: int | None = None) -> None:
         #super().__init__()
         # self.path = path
         # self.data = data or self._load_file(path)
         self.__db_path = db_path
         self.__class__.connection_cache[self.__db_path] = cursor
-        #self.__cursor: sqlite3.Cursor = cursor
+        #self.__cursor: Cursor = cursor
         self.__len: int | None = len
 
-    def get_or_make_db(self) -> sqlite3.Cursor:
+    def get_or_make_db(self) -> Cursor:
         cursor = self.__class__.connection_cache[self.__db_path]
         return cursor
 
 
     def __iter__(self) -> CursorColumnIterator:
-        cursor: sqlite3.Cursor = self.get_or_make_db().execute(f'SELECT {db.CONTENT} FROM {db.PASSAGE}')
+        cursor: Cursor = self.get_or_make_db().execute(f'SELECT {db.CONTENT} FROM {db.PASSAGE}')
         return CursorColumnIterator(cursor, 0)
 
     def __getitem__(self, item_number: int) -> str | None:
@@ -189,7 +189,7 @@ class DbCollection(Collection):
         return self.__class__.read_passages_by_id(self.get_or_make_db(), passage_ids)
     
     @classmethod
-    def read_passages_by_id(cls, cursor: sqlite3.Cursor, passage_ids: list[int]) -> Iterator[tuple[int,str]]:
+    def read_passages_by_id(cls, cursor: Cursor, passage_ids: list[int]) -> Iterator[tuple[int,str]]:
         # create (?, ?), (?, ?)
         markers_for_index_and_param = sql_index_and_parameter_marks(passage_ids)
         params_with_index = sql_add_index_to_params(passage_ids)
@@ -200,7 +200,7 @@ class DbCollection(Collection):
                       f' LEFT JOIN {db.PASSAGE} p ON p.{db.ID} = c.id'
                       ' ORDER BY c.pos')
        
-        res: sqlite3.Cursor = cursor.execute(query, params_with_index)
+        res: Cursor = cursor.execute(query, params_with_index)
         return res
 
     
