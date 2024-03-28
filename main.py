@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 #import asyncio
 # import aiosqlite
 import sqlite3
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException # Depends, 
 import time
 from typing import Any, Union
 # import db

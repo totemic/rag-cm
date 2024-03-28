@@ -53,3 +53,20 @@ in prod
 ```
 uvicorn main:app
 ```
+
+
+Known issues:
+
+When shutting down the server we get this
+````
+miniconda/base/envs/rag/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+```
+
+caused by use of tqdm.tqdm() in
+
+colbert/search/index_loader.py -> _load_doclens
+colbert/indexing/codecs/residual_embeddings.py -> load_chunks
+
+might be related to this:
+https://github.com/tqdm/tqdm/issues/1321

@@ -1,24 +1,21 @@
+from typing import Any, Literal, Optional, Union
 import logging
 logger = logging.getLogger(__name__)
+import colbert_patches
+colbert_patches.patch_colbert_model_loader_be_carefull()
 
 import math
 # import os
 import time
-from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, TypeVar, Union
 
 import numpy as np
 # import srsly
 import torch
 from colbert import Indexer, IndexUpdater, Searcher, Trainer
-from colbert.data import Collection
-from colbert.indexing.collection_encoder import CollectionEncoder
 from colbert.infra import ColBERTConfig, Run, RunConfig
 from colbert.modeling.checkpoint import Checkpoint
 
-
-#from colbert.data.collection import Collection
 from dbcollection import DbCollection
 
 
@@ -169,7 +166,7 @@ class ColBertManager:
                 self.config.index_bsize = bsize
 
             updater: IndexUpdater = self.get_index_updater()
-            passage_ids: List[int] = updater.add(passages) # type: ignore
+            passage_ids: list[int] = updater.add(passages) # type: ignore
 
             # TODO: compare returned passage_ids with the one we generated ourselves. 
             # If they don't match for some reason, we might have to recreate the entire index
@@ -218,14 +215,14 @@ class ColBertManager:
         updater = IndexUpdater(config=self.config, searcher=self.searcher, 
                                 # TODO: don't specify the checkpoint here, otherwise the model is loaded again
                                 # instead, we manually add the embedder to IndexUpdater
-                                #checkpoint=self.checkpoint_name_or_path
+                                checkpoint=self.checkpoint_name_or_path
         
         )
-        if True:
-            # TODO: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
-            updater.has_checkpoint = True
-            updater.checkpoint = self.searcher.checkpoint # type: ignore
-            updater.encoder = CollectionEncoder(config=self.config, checkpoint = self.searcher.checkpoint) # type: ignore
+        # if True:
+        #     # TODO: see above, this code should really live in IndexUpdater by letting us pass an existing Checkpoint
+        #     updater.has_checkpoint = True
+        #     updater.checkpoint = self.searcher.checkpoint # type: ignore
+        #     updater.encoder = CollectionEncoder(config=self.config, checkpoint = self.searcher.checkpoint) # type: ignore
         return updater
 
 

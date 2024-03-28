@@ -1,12 +1,8 @@
 import logging
 logger = logging.getLogger(__name__)
-
 from typing import Any, overload
-
 import itertools
 from collections.abc import Iterator
-
-
 from colbert.data import Collection
 from colbert.infra.run import Run
 import sqlite3
@@ -90,11 +86,11 @@ def sql_add_index_to_params(parameters: list[int]) -> list[int]:
     params_with_index[1::2] = parameters
     return params_with_index
 
-# TODO: (copied from Colbert) Look up path in some global [per-thread or thread-safe] list.
 
 class DbCollection(Collection):
-    # we need to store the connections in a class level map. 
+    # TODO: We need to store the connections in a class level map. 
     # We can't store them inside the instances, since this causes an issue when ColBert is attempting to make a pickle serialization
+    # This should ideally be handled differently by the ColBERT library
     connection_cache: dict[str, sqlite3.Cursor] = {}
     def __init__(self, db_path: str, cursor: sqlite3.Cursor, len: int | None = None) -> None:
         #super().__init__()
@@ -227,6 +223,6 @@ class DbCollection(Collection):
 
         assert False, f"obj has type {type(obj)} which is not compatible with cast()"
 
-# !!!!!!!!!!!!!!!
-# Monkey path the cast function
+from colbert_patches import patch_colbert_collection_cast_be_carefull
 Collection.cast = DbCollection.cast
+patch_colbert_collection_cast_be_carefull()
