@@ -2,10 +2,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from typing import Any
-import requests
+# from typing import Any
+# import requests
 import time
-import sqlite3
+from sqlite3 import (Connection, Cursor)
 
 from constants import (
     DB_FILE_PATH, 
@@ -16,7 +16,7 @@ from constants import (
 )
 import db
 
-from pathlib import Path
+# from pathlib import Path
 from ColBertManager import ColBertManager
 # from ragatouillefork import RAGPretrainedModel
 
@@ -26,29 +26,19 @@ from llama_index.core import SimpleDirectoryReader
 
 from llama_index.core.schema import (
     BaseNode,
-    Document,
+    # Document,
 )
 from llama_index.core.node_parser import (
-    MarkdownNodeParser,
+    # MarkdownNodeParser,
     SentenceSplitter,
-    SemanticSplitterNodeParser,
+    # SemanticSplitterNodeParser,
 )
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+# from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 #from colbert.data.collection import Collection
 from dbcollection import ( open_sqlite_db, create_tables_if_missing, sql_parameter_marks, DbCollection )
 
-con = open_sqlite_db(DB_FILE_PATH)
-create_tables_if_missing(con)
-cursor: sqlite3.Cursor = con.cursor()
-
-db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
-is_empty_db = db_collection.read_len() == 0
-# is_empty_db = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is None
-colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME, "colbert-ir/colbertv2.0"
-                                 ) if is_empty_db else ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
-
-    
-def ingest_documents(input_files: list[str]): 
+def ingest_documents(con: Connection, input_files: list[str]): 
+    cursor: Cursor = con.cursor()
     is_empty_db = db_collection.read_len() == 0
     next_passage_id = 0 if is_empty_db else colbert_manager.get_next_passage_id_for_insert()
     #embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-small")
@@ -146,10 +136,11 @@ def ingest_documents(input_files: list[str]):
     start_index: float = time.time()
 
     if is_empty_db:
-        path_to_index2: str = colbert_manager.index(
+        path_to_index: str = colbert_manager.index(
             max_document_length=chunk_size,
             overwrite=True
         )
+        logger.info(f'Created index at {path_to_index}')
     else:
         colbert_manager.add_to_index(
             passages=collection, 
@@ -178,35 +169,48 @@ def ingest_documents(input_files: list[str]):
 
     # only commit the results to the db if adding to to ColBert index succeeded
     con.commit()
+    cursor.close
     return
 
-def delete_document_passages(passage_ids: list[int]):
-    cursor.execute(f'DELETE FROM {db.PASSAGE} AS p'
+def delete_document_passages(con: Connection, passage_ids: list[int]):
+    con.execute(f'DELETE FROM {db.PASSAGE} AS p'
                    f' WHERE p.{db.ID} IN ({sql_parameter_marks(passage_ids)})', passage_ids)
     colbert_manager.remove_from_index(passage_ids)
     con.commit()
 
 
-ingest_documents([
-        "test/test.md"
-        ])
+if __name__ == "__main__":
+    con: Connection = open_sqlite_db(DB_FILE_PATH)
+    create_tables_if_missing(con)
+    cursor: Cursor = con.cursor()
 
-results = colbert_manager.search(query="what's the best passge for number 18?", k=3)
-print(results)
+    db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
+    is_empty_db = db_collection.read_len() == 0
+    # is_empty_db = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is None
+    colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME, "colbert-ir/colbertv2.0"
+                                    ) if is_empty_db else ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
+        
 
-ingest_documents([
-        "test/test2.md",
-        ])
+    ingest_documents(con, [
+            "test/test.md"
+            ])
 
-print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
+    results = colbert_manager.search(query="what's the best passge for number 18?", k=3)
+    print(results)
 
-delete_document_passages(passage_ids=[2, 3])
+    ingest_documents(con, [
+            "test/test2.md",
+            ])
 
-print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
+    print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
 
-delete_document_passages(passage_ids=[18, 16])
+    delete_document_passages(con, passage_ids=[2, 3])
 
-print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
+    print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
 
-cursor.close()
-con.close()
+    delete_document_passages(con, passage_ids=[18, 16])
+
+    print(colbert_manager.search(query="what's the best passge for number 18?", k=3))
+
+    cursor.close()
+    con.close()
