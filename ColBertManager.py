@@ -678,5 +678,6 @@ class ColBertManager:
         try:
             logger.info("Clean up context!")
             self.run_context.__exit__(None, None, None)
-        except Exception:
-            logger.warning("Tried to clean up context but failed!")
+        except Exception as e:
+            print("WARNING: Tried to clean up context but failed!")
+            print(e)
