@@ -55,10 +55,11 @@ uvicorn main:app
 ```
 
 
-Known issues:
+# Known issues that need to be fixed in the ColBERT dependency
 
+## Semaphore leak
 When shutting down the server we get this
-````
+```
 miniconda/base/envs/rag/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
   warnings.warn('resource_tracker: There appear to be %d '
 ```
@@ -70,3 +71,15 @@ colbert/indexing/codecs/residual_embeddings.py -> load_chunks
 
 might be related to this:
 https://github.com/tqdm/tqdm/issues/1321
+
+## ColBERT creating Checkpoint objects in multiple places
+ColBERT creates a `Checkpoint` object in `Searcher`, `Indexer` and parent class `CollectionIndexer`, `IndexUpdater`
+
+## ColBERT not keeping different parts in sync
+When we have a searcher loaded and rebuild the index through `Indexer`, the searcher does not know anything about the added components. We currently have to trigger a reload of the searcher to make this work but it would be better if we could avoid this.
+Details:
+When indexing, `Indexer` through `CollectionIndexer` calculated `doclens`
+`Searcher` stores its own `IndexScorer(IndexLoader)` in `self.ranker` that is not updated when the index is updated. Its `self.doclens` is only loaded at initialization. 
+
+## No control over the passage ids inside ColBERT
+ColBERT assigns passage ids in sequential order. We can't insert our own ids when building the index. And when adding elements, it calculates the next ids based on doclens. The problem is that when you delete elements from the index and the insert more elements to it, self.doclens wil return the amount of currently active passages (excluding the deleted ones). But the indexes in sql still have holes in them. When we now generate new ids following what ColBERT wants to use, then these ids are already used in the database.
