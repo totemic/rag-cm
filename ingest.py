@@ -8,6 +8,7 @@ import time
 from sqlite3 import (Connection, Cursor)
 
 from constants import (
+    BASE_HF_COLBERT_MODEL_NAME,
     DB_FILE_PATH, 
     INDEX_ROOT_PATH,
     INDEX_NAME,
@@ -187,7 +188,7 @@ if __name__ == "__main__":
     db_collection = DbCollection(db_path=DB_FILE_PATH, cursor=cursor)
     is_empty_db = db_collection.read_len() == 0
     # is_empty_db = cursor.execute(f'SELECT rowid,id FROM {db.PASSAGE} ORDER BY rowid DESC LIMIT 1').fetchone() is None
-    colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME, "colbert-ir/colbertv2.0"
+    colbert_manager = ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME, BASE_HF_COLBERT_MODEL_NAME,
                                     ) if is_empty_db else ColBertManager(db_collection, INDEX_ROOT_PATH, INDEX_NAME)
         
 
