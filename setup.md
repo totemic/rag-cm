@@ -13,6 +13,7 @@ conda install ninja
 conda install pytorch -c pytorch
 conda install -c pytorch faiss-cpu=1.8.0
 #conda install -c pytorch -c nvidia faiss-gpu=1.8.0
+conda install -c conda-forge pybind11
 
 pip install colbert-ai srsly requests
 #pip install ragatouille pyvespa requests
@@ -31,7 +32,7 @@ pip install aiosqlite
 pip install fastapi
 pip install "uvicorn[standard]"
 
-conda env export > environment.yml
+conda env export --no-build > environment.yml
 
 conda deactivate 
 conda remove --name rag --all
@@ -53,6 +54,20 @@ in prod
 ```
 uvicorn main:app
 ```
+
+# Build docker
+ECR_REPOSITORY_NAME=rag-cm
+ECR_AWS_REGION=us-west-2
+
+VERSION=$( cat VERSION )
+echo "export BUILD_VERSION=${VERSION}" >> $BASH_ENV
+echo 'export FULL_REPOSITORY_NAME="${AWS_ACCOUNT_ID}.dkr.ecr.${ECR_AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"' >> $BASH_ENV
+echo 'export IMAGE_TAGGED_VERSION_BUILD="${FULL_REPOSITORY_NAME}:${BUILD_VERSION}-${CIRCLE_BUILD_NUM}"' >> $BASH_ENV
+echo 'export IMAGE_TAGGED_VERSION="${FULL_REPOSITORY_NAME}:${BUILD_VERSION}"' >> $BASH_ENV
+echo 'export IMAGE_TAGGED_LATEST="${FULL_REPOSITORY_NAME}:latest"' >> $BASH_ENV
+
+
+docker build -t $IMAGE_TAGGED_VERSION_BUILD -t $IMAGE_TAGGED_VERSION -t $IMAGE_TAGGED_LATEST --build-arg IMG_VERSION=$BUILD_VERSION --build-arg IMG_BUILD_NUMBER=$CIRCLE_BUILD_NUM .
 
 
 # Known issues that need to be fixed in the ColBERT dependency
