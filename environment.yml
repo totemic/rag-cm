@@ -3,48 +3,47 @@ channels:
   - pytorch
   - defaults
 dependencies:
-  - blas=1.0=openblas
-  - bzip2=1.0.8=h80987f9_5
-  - ca-certificates=2023.12.12=hca03da5_0
-  - expat=2.5.0=h313beb8_0
-  - faiss-cpu=1.8.0=py3.12_hbe593ad_0_cpu
-  - filelock=3.13.1=py312hca03da5_0
-  - jinja2=3.1.3=py312hca03da5_0
-  - libcxx=14.0.6=h848a8c0_0
-  - libfaiss=1.8.0=hcb8d3e5_0_cpu
-  - libffi=3.4.4=hca03da5_0
-  - libgfortran=5.0.0=11_3_0_hca03da5_28
-  - libgfortran5=11.3.0=h009349e_28
-  - libopenblas=0.3.21=h269037a_0
-  - llvm-openmp=14.0.6=hc6e5704_0
-  - markupsafe=2.1.3=py312h80987f9_0
-  - mpmath=1.3.0=py312hca03da5_0
-  - ncurses=6.4=h313beb8_0
-  - networkx=3.1=py312hca03da5_0
-  - ninja-base=1.10.2=h525c30c_5
-  - nomkl=3.0=0
-  - numpy=1.26.4=py312h7f4fdc5_0
-  - numpy-base=1.26.4=py312he047099_0
-  - openblas=0.3.21=hca03da5_0
-  - openblas-devel=0.3.21=hca03da5_0
-  - openssl=3.0.13=h1a28f6b_0
-  - pip=23.3.1=py312hca03da5_0
-  - python=3.12.2=h99e199e_0
-  - pytorch=2.2.1=py3.12_0
-  - pyyaml=6.0.1=py312h80987f9_0
-  - readline=8.2=h1a28f6b_0
-  - setuptools=68.2.2=py312hca03da5_0
-  - sqlite=3.41.2=h80987f9_0
-  - sympy=1.12=py312hca03da5_0
-  - tk=8.6.12=hb8d0fd4_0
-  - typing_extensions=4.9.0=py312hca03da5_1
-  - wheel=0.41.2=py312hca03da5_0
-  - xz=5.4.6=h80987f9_0
-  - yaml=0.2.5=h1a28f6b_0
-  - zlib=1.2.13=h5a0b063_0
+  - blas=1.0
+  - bzip2=1.0.8
+  - ca-certificates=2023.12.12
+  - expat=2.5.0
+  - faiss-cpu=1.8.0
+  - filelock=3.13.1
+  - jinja2=3.1.3
+  - libcxx=14.0.6
+  - libfaiss=1.8.0
+  - libffi=3.4.4
+  - libopenblas=0.3.21
+  - llvm-openmp=14.0.6
+  - markupsafe=2.1.3
+  - mpmath=1.3.0
+  - ncurses=6.4
+  - networkx=3.1
+  - ninja-base=1.10.2
+  - nomkl=3.0
+  - numpy=1.26.4
+  - numpy-base=1.26.4
+  - openblas=0.3.21
+  - openblas-devel=0.3.21
+  - openssl=3.0.13
+  - pip=23.3.1
+  - python=3.11
+  - pytorch=2.2.0
+  - pyyaml=6.0.1
+  - readline=8.2
+  - setuptools=68.2.2
+  - sqlite=3.41.2
+  - sympy=1.12
+  - tk=8.6.12
+  - typing_extensions=4.9.0
+  - wheel=0.41.2
+  - xz=5.4.6
+  - yaml=0.2.5
+  - zlib=1.2.13
   - pip:
       - aiohttp==3.9.3
       - aiosignal==1.3.1
+      - aiosqlite==0.20.0
       - annotated-types==0.6.0
       - anyio==4.3.0
       - attrs==23.2.0
@@ -168,4 +167,3 @@ dependencies:
       - wsproto==1.2.0
       - xxhash==3.4.1
       - yarl==1.9.4
-prefix: /opt/homebrew/Caskroom/miniconda/base/envs/rag
