@@ -8,9 +8,16 @@ from colbert.infra.run import Run
 from sqlite3 import (connect as sql_connect, Connection, Cursor)
 import db
 import os
+import pathlib
 
 def open_sqlite_db(database: str | os.PathLike[str], readonly:bool=False) -> Connection:
     url = f'file:{database}?mode=ro' if readonly else database
+    if not readonly:
+        db_path = pathlib.Path(database)
+        if not db_path.exists():
+            dir_path = db_path.parent
+            if not dir_path.exists():
+                dir_path.mkdir(parents=True, exist_ok=True)
     # A readonly database can be shared accross multiple threads. 
     # But doing this for writable databases can lead to data-corruption. 
     con: Connection = sql_connect(url, check_same_thread=not readonly, uri=readonly)

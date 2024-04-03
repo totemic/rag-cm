@@ -41,15 +41,15 @@ class ColBertManager:
             n_gpu = 1 if torch.cuda.device_count() == 0 else torch.cuda.device_count()
 
         # hard-code these here. We supply more specific path values througn index_root and index_name which override these in most uses
-        root = ".ragindex/"
-        experiment = "colbert"
+        root = ".unused_root"
+        experiment = "unused_experiment"
         if pretrained_model_path is None:
             index_path = str(Path(index_root) / index_name)
 
             ckpt_config = ColBERTConfig.load_from_index(index_path) # type: ignore
             self.config = ckpt_config
             self.run_config = RunConfig(
-                nranks=n_gpu, root=root, experiment=experiment
+                nranks=n_gpu, root=root, experiment=experiment, index_root=index_root
             )
             self.config.index_root = index_root
             self.config.index_name = index_name
@@ -62,12 +62,12 @@ class ColBertManager:
             ckpt_config = ColBERTConfig.load_from_checkpoint(checkpoint_name_or_path) # type: ignore
 
             self.run_config = RunConfig(
-                nranks=n_gpu, root=root, experiment=experiment
+                nranks=n_gpu, root=root, experiment=experiment, index_root=index_root
             )
             local_config = ColBERTConfig(**kwargs) # type: ignore
             self.config = ColBERTConfig.from_existing(ckpt_config, local_config,) # type: ignore
-            self.config.triples = "unused"
-            self.config.queries = "unused"
+            self.config.triples = "unused_triples"
+            self.config.queries = "unused_queries"
             self.config.index_root = index_root
             self.config.index_name = index_name
             self.checkpoint_name_or_path: str = checkpoint_name_or_path
@@ -133,9 +133,9 @@ class ColBertManager:
 
         res_path = self.indexer.index(name=self.config.index_name, collection=self.db_collection, overwrite=overwrite) # type: ignore
 
-        # load searcher right after we created the index
-        if self.searcher is None:
-            self.searcher = self.load_and_configure_searcher()
+        # load searcher right after we (re-created) the index
+        # TODO: we need to also do this if we had an existing searcher since it is not updated with the new entries
+        self.searcher = self.load_and_configure_searcher()
 
         logger.debug("Done indexing!")
 
