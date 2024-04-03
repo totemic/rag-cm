@@ -98,3 +98,6 @@ When indexing, `Indexer` through `CollectionIndexer` calculated `doclens`
 
 ## No control over the passage ids inside ColBERT
 ColBERT assigns passage ids in sequential order. We can't insert our own ids when building the index. And when adding elements, it calculates the next ids based on doclens. The problem is that when you delete elements from the index and the insert more elements to it, self.doclens wil return the amount of currently active passages (excluding the deleted ones). But the indexes in sql still have holes in them. When we now generate new ids following what ColBERT wants to use, then these ids are already used in the database.
+
+# When creating a `Searcher`, we can't supply a path
+Instead, the constructor of `Searcher` requires separate `index_root` and `index` to be supplied. But internally, it's just joined into a single path. But because of that, our system cannot just have a single path variable and we will always need to carry both individual values. Instead, we'd rather use `self.config.index_path`. The same goes for `Indexer.index` which expects `index_name=name`
