@@ -131,7 +131,7 @@ class ColBertManager:
         self.indexer.configure(avoid_fork_if_possible=True) # type: ignore
 
 
-        res_path = self.indexer.index(name=self.config.index_name, collection=self.db_collection, overwrite=overwrite) # type: ignore
+        res_path: str = self.indexer.index(name=self.config.index_name, collection=self.db_collection, overwrite=overwrite) # type: ignore
 
         # load searcher right after we (re-created) the index
         # TODO: we need to also do this if we had an existing searcher since it is not updated with the new entries
@@ -147,14 +147,16 @@ class ColBertManager:
         passage_ids_for_validation: list[int],
         bsize: int = 32,
         allow_reindex:bool = True
-    ) -> None:
+    ) -> bool:
 
         # we have added items to the list, make sure db_collection fetches the correct amount next time it calculates the entry count
         combined_len = self.db_collection.read_len()
         new_doc_len = len(passages)
         current_len = combined_len - new_doc_len
 
-        if allow_reindex and (current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05):
+        reindex_collection = allow_reindex and (current_len + new_doc_len < 5000 or new_doc_len > current_len * 0.05)
+
+        if reindex_collection:
             # just reindex the whole collection
             self.index(
                 max_document_length=self.config.doc_maxlen,
@@ -177,6 +179,7 @@ class ColBertManager:
             f"Successfully updated index with {new_doc_len} new documents!\n",
             f"New index size: {combined_len}",
         )
+        return reindex_collection
     
     def get_next_passage_id_for_insert(self) -> int:
         # TODO: this was copied from IndexUpdater.add

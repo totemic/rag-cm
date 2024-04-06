@@ -15,7 +15,6 @@ from constants import (
     # INDEX_NAME_RAGA,
     # INDEX_PATH_RAGA
 )
-import db
 
 # from pathlib import Path
 from ColBertManager import ColBertManager
@@ -36,7 +35,17 @@ from llama_index.core.node_parser import (
 )
 # from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 #from colbert.data.collection import Collection
-from dbcollection import ( open_sqlite_db, create_tables_if_missing, sql_parameter_marks, DbCollection )
+from dbcollection import ( 
+    add_document,
+    add_passage_group, 
+    add_passage,
+    delete_passages_by_id,
+    update_next_passage_ids,
+    renumber_passage_ids,
+    open_sqlite_db, 
+    create_tables_if_missing,
+    DbCollection 
+)
 
 def ingest_documents(con: Connection, input_files: list[str]): 
     cursor: Cursor = con.cursor()
@@ -83,11 +92,7 @@ def ingest_documents(con: Connection, input_files: list[str]):
             if filename in filename_doc_id_map:
                 doc_id = filename_doc_id_map[filename]
             else:
-                cursor.execute(f'INSERT INTO {db.DOCUMENT} ({db.FILE_NAME}) VALUES (?)'
-                               f' RETURNING {db.ID}',
-                               (filename, ))
-                row = cursor.fetchone()
-                (doc_id, ) = row if row  is not None else (None, )
+                doc_id = add_document(cursor, filename)
                 if doc_id is not None:
                     filename_doc_id_map[filename] = doc_id
 
@@ -95,22 +100,14 @@ def ingest_documents(con: Connection, input_files: list[str]):
                 if node.ref_doc_id in group_uuid_group_id_map:
                     group_id = group_uuid_group_id_map[node.ref_doc_id]
                 else:
-                    cursor.execute(f'INSERT INTO {db.PASSAGE_GROUP} ({db.NAME}, {db.DOC_ID}) VALUES (?, ?)'
-                                   f' RETURNING {db.ID}',
-                                   (node.ref_doc_id, doc_id))
-                    row = cursor.fetchone()
-                    (group_id, ) = row if row is not None else (None, )
+                    group_id = add_passage_group(cursor, node.ref_doc_id, doc_id)
                     if group_id:
                         group_uuid_group_id_map[node.ref_doc_id] = group_id
 
             content: str = node.get_content()
         
             prev_passage_id = passage_uuid_passage_id_map[node.prev_node.node_id] if node.prev_node else None
-            cursor.execute(f'INSERT INTO {db.PASSAGE} ({db.ID}, {db.CONTENT}, {db.GROUP_ID}, {db.PREV_ID}) VALUES (?,?,?,?)'
-                           f' RETURNING {db.ID}',
-                           (next_passage_id, content, group_id, prev_passage_id))
-            row = cursor.fetchone()
-            (passage_id, ) = row if row is not None else (None, )
+            passage_id = add_passage(cursor, next_passage_id, content, group_id, prev_passage_id)
             if passage_id is not None:
                 next_passage_id = next_passage_id + 1
                 passage_uuid_passage_id_map[node.node_id] = passage_id
@@ -123,12 +120,7 @@ def ingest_documents(con: Connection, input_files: list[str]):
                 collection.append(content)
                 passage_ids.append(passage_id)
 
-    # add the {db.NEXT_ID}s
-    cursor.execute(f'UPDATE {db.PASSAGE} AS p'
-                   f' SET {db.NEXT_ID} = p2.{db.ID}'
-                   f' FROM {db.PASSAGE} AS p2'
-                   f' WHERE p2.{db.PREV_ID} = p.{db.ID}'
-                   f' AND p.{db.NEXT_ID} IS NULL;')
+    update_next_passage_ids(cursor)
 
     # https://jina.ai/news/what-is-colbert-and-late-interaction-and-why-they-matter-in-search/
     #RAG = RAGPretrainedModel.from_pretrained("jinaai/jina-colbert-v1-en")
@@ -143,10 +135,12 @@ def ingest_documents(con: Connection, input_files: list[str]):
         )
         logger.info(f'Created index at {path_to_index}')
     else:
-        colbert_manager.add_to_index(
+        reindexed_collection = colbert_manager.add_to_index(
             passages=collection, 
             passage_ids_for_validation=passage_ids
         )
+        if reindexed_collection:
+            renumber_passage_ids(cursor)
 
     # RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
     # path_to_index2: str = RAG.index(
@@ -174,10 +168,11 @@ def ingest_documents(con: Connection, input_files: list[str]):
     return
 
 def delete_document_passages(con: Connection, passage_ids: list[int]):
-    con.execute(f'DELETE FROM {db.PASSAGE} AS p'
-                   f' WHERE p.{db.ID} IN ({sql_parameter_marks(passage_ids)})', passage_ids)
+    cursor: Cursor = con.cursor()
+    delete_passages_by_id(cursor, passage_ids)
     colbert_manager.remove_from_index(passage_ids)
     con.commit()
+    cursor.close()
 
 
 if __name__ == "__main__":
