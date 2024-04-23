@@ -78,14 +78,14 @@ def root() -> dict[str, str]:
 def read_item(item_id: int, q: Union[str, None] = None) -> dict[str, int | Any]:
     return {"item_id": item_id, "q": q}
 
-@app.get("/query")
-async def query(q: str, count: int=3) -> Any | list[Any]:
+@app.get("/search")
+async def search(q: str, count: int=3) -> Any:
     start_search = time.time()
     results = colbert_manager.search(query=q, k=count)
     # results = RAG.search(query=q, k=count)
     elapsed_search = (time.time() - start_search)
     print(elapsed_search)
-    return results
+    return {"data": results}
 
 @app.get("/querytest")
 async def querytest() -> Any | list[Any]:
