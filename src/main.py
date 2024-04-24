@@ -102,6 +102,32 @@ async def statictest() -> Any | list[Any]:
     print(elapsed_search)
     return "Hi this is a static result"
 
+@app.get("/openaitest")
+async def statictest() -> Any | list[Any]:
+    import os
+    from openai import OpenAI
+    from dotenv import load_dotenv , find_dotenv
+    _ = load_dotenv(find_dotenv())
+
+    client = OpenAI(
+        # This is the default and can be omitted
+        api_key=os.environ.get("OPEN_AI_API_KEY"),
+    )
+
+    start_time = time.time()
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": "Say this is a test",
+            }
+        ],
+        model="gpt-3.5-turbo",
+    )
+    elapsed_time = (time.time() - start_time)
+    print(elapsed_time)
+    return chat_completion.choices[0].message.content
+
 # async def db_test(conn: aiosqlite.Connection, passage_ids: list[int]) -> list[Any]:
 #     res: list[Any] = []
 
