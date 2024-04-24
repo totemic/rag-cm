@@ -1,3 +1,6 @@
+.env
+*.env
+
 # Python files #
 ################
 # setup.py working directory
