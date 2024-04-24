@@ -29,6 +29,7 @@ pip install llama-index-embeddings-huggingface
 #pip install transformers optimum[exporters]
 pip install 'huggingface-hub==0.22.2'
 pip install 'transformers==4.39.3'
+pip install dspy-ai
 
 pip install aiosqlite
 pip install fastapi
