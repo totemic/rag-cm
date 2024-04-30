@@ -81,6 +81,7 @@ optimum-cli onnxruntime quantize --onnx_model hallucination_evaluation_model_onn
 ```
 ECR_REPOSITORY_NAME=rag-cm
 ECR_AWS_REGION=us-west-2
+CIRCLE_BUILD_NUM=0
 
 VERSION=$( cat VERSION )
 echo "export BUILD_VERSION=${VERSION}" >> $BASH_ENV
@@ -93,6 +94,12 @@ echo 'export IMAGE_TAGGED_LATEST="${FULL_REPOSITORY_NAME}:latest"' >> $BASH_ENV
 docker build -t $IMAGE_TAGGED_VERSION_BUILD -t $IMAGE_TAGGED_VERSION -t $IMAGE_TAGGED_LATEST --build-arg IMG_VERSION=$BUILD_VERSION --build-arg IMG_BUILD_NUMBER=$CIRCLE_BUILD_NUM .
 
 docker run -it --entrypoint=/bin/bash $FULL_REPOSITORY_NAME/rag-cm
+
+aws ecr get-login-password --region $ECR_AWS_REGION | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${ECR_AWS_REGION}.amazonaws.com
+
+docker push ${IMAGE_TAGGED_VERSION_BUILD}
+docker push ${IMAGE_TAGGED_VERSION}
+docker push ${IMAGE_TAGGED_LATEST}
 ```
 
 # Known issues that need to be fixed in the ColBERT dependency
