@@ -35,12 +35,17 @@ pip install aiosqlite
 pip install fastapi
 pip install "uvicorn[standard]"
 
-conda env export --no-build > environment.yml
+conda env export --from-history --no-build > environment.yml
 
 conda deactivate 
 conda remove --name rag --all
 ```
 
+
+Restore
+```
+conda env create -f environment.yml
+```
 In visual studio code select conda environment 
 ⇧⌘P python: s
 
@@ -58,7 +63,22 @@ in prod
 uvicorn main:app
 ```
 
+# Optimize model
+
+```
+pip install sentence-transformers
+pip install optimum
+pip install --upgrade --upgrade-strategy eager "optimum[onnxruntime]"
+
+optimum-cli export onnx --model vectara/hallucination_evaluation_model hallucination_evaluation_model_onnx/
+optimum-cli onnxruntime optimize --onnx_model hallucination_evaluation_model_onnx/ -O4 -o hallucination_evaluation_model_onnx_optimized
+
+optimum-cli onnxruntime quantize --onnx_model hallucination_evaluation_model_onnx/ --avx512 --per_channel -o hallucination_evaluation_model_onnx_quantized
+
+```
+
 # Build docker
+```
 ECR_REPOSITORY_NAME=rag-cm
 ECR_AWS_REGION=us-west-2
 
@@ -72,7 +92,8 @@ echo 'export IMAGE_TAGGED_LATEST="${FULL_REPOSITORY_NAME}:latest"' >> $BASH_ENV
 
 docker build -t $IMAGE_TAGGED_VERSION_BUILD -t $IMAGE_TAGGED_VERSION -t $IMAGE_TAGGED_LATEST --build-arg IMG_VERSION=$BUILD_VERSION --build-arg IMG_BUILD_NUMBER=$CIRCLE_BUILD_NUM .
 
-docker run -it --entrypoint=/bin/bash 028211419619.dkr.ecr.us-west-2.amazonaws.com/rag-cm
+docker run -it --entrypoint=/bin/bash $FULL_REPOSITORY_NAME/rag-cm
+```
 
 # Known issues that need to be fixed in the ColBERT dependency
 
