@@ -33,4 +33,4 @@ EXPOSE 80
 ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "rag"]
 #ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "myenv", "python3", "src/server.py"]
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
