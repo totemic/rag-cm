@@ -1,7 +1,6 @@
 import os
 import sys
 from collections import Counter, defaultdict
-from functools import partial
 from itertools import chain
 from math import log
 from multiprocessing import Pool
@@ -358,35 +357,6 @@ def process(a, tokenizer=None):
         a = sent_encode(tokenizer, a)
     return set(a)
 
-
-def get_idf_dict(arr, tokenizer, nthreads=4):
-    """
-    Returns mapping from word piece index to its inverse document frequency.
-
-
-    Args:
-        - :param: `arr` (list of str) : sentences to process.
-        - :param: `tokenizer` : a BERT tokenizer corresponds to `model`.
-        - :param: `nthreads` (int) : number of CPU threads to use
-    """
-    idf_count = Counter()
-    num_docs = len(arr)
-
-    process_partial = partial(process, tokenizer=tokenizer)
-
-    if nthreads > 0:
-        with Pool(nthreads) as p:
-            idf_count.update(chain.from_iterable(p.map(process_partial, arr)))
-    else:
-        idf_count.update(chain.from_iterable(map(process_partial, arr)))
-
-    idf_dict = defaultdict(lambda: log((num_docs + 1) / (1)))
-    idf_dict.update(
-        {idx: log((num_docs + 1) / (c + 1)) for (idx, c) in idf_count.items()}
-    )
-    return idf_dict
-
-
 def collate_idf(arr, tokenizer, idf_dict, device="cuda:0"):
     """
     Helper function that pads a list of sentences to hvae the same length and
@@ -659,27 +629,6 @@ def bert_cos_score_idf(
     return preds
 
 
-def get_hash(
-    model,
-    num_layers,
-    idf,
-    rescale_with_baseline,
-    use_custom_baseline,
-    use_fast_tokenizer,
-):
-    msg = "{}_L{}{}_version={}(hug_trans={})".format(
-        model, num_layers, "_idf" if idf else "_no-idf", __version__, trans_version
-    )
-    if rescale_with_baseline:
-        if use_custom_baseline:
-            msg += "-custom-rescaled"
-        else:
-            msg += "-rescaled"
-    if use_fast_tokenizer:
-        msg += "_fast-tokenizer"
-    return msg
-
-
 def cache_scibert(model_type, cache_folder="~/.cache/torch/transformers"):
     if not model_type.startswith("scibert"):
         return model_type
@@ -735,12 +684,8 @@ class BERTScorer:
         batch_size=64,
         nthreads=4,
         all_layers=False,
-        idf=False,
-        idf_sents=None,
         device=None,
         lang=None,
-        rescale_with_baseline=False,
-        baseline_path=None,
         use_fast_tokenizer=False,
     ):
         """
@@ -751,18 +696,13 @@ class BERTScorer:
             - :param: `num_layers` (int): the layer of representation to use.
                       default using the number of layer tuned on WMT16 correlation data
             - :param: `verbose` (bool): turn on intermediate status update
-            - :param: `idf` (bool): a booling to specify whether to use idf or not (this should be True even if `idf_sents` is given)
-            - :param: `idf_sents` (List of str): list of sentences used to compute the idf weights
             - :param: `device` (str): on which the contextual embedding model will be allocated on.
                       If this argument is None, the model lives on cuda:0 if cuda is available.
             - :param: `batch_size` (int): bert score processing batch size
             - :param: `nthreads` (int): number of threads
             - :param: `lang` (str): language of the sentences; has to specify
-                      at least one of `model_type` or `lang`. `lang` needs to be
-                      specified when `rescale_with_baseline` is True.
+                      at least one of `model_type` or `lang`.
             - :param: `return_hash` (bool): return hash code of the setting
-            - :param: `rescale_with_baseline` (bool): rescale bertscore with pre-computed baseline
-            - :param: `baseline_path` (str): customized baseline file
             - :param: `use_fast_tokenizer` (bool): `use_fast` parameter passed to HF tokenizer
         """
 
@@ -770,19 +710,12 @@ class BERTScorer:
             lang is not None or model_type is not None
         ), "Either lang or model_type should be specified"
 
-        if rescale_with_baseline:
-            assert (
-                lang is not None
-            ), "Need to specify Language when rescaling with baseline"
-
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
 
         self._lang = lang
-        self._rescale_with_baseline = rescale_with_baseline
-        self._idf = idf
         self.batch_size = batch_size
         self.nthreads = nthreads
         self.all_layers = all_layers
@@ -794,96 +727,25 @@ class BERTScorer:
             self._model_type = model_type
 
         if num_layers is None:
-            self._num_layers = model2layers[self.model_type]
-        else:
-            self._num_layers = num_layers
+            num_layers = model2layers[self.model_type]
 
         # Building model and tokenizer
         self._use_fast_tokenizer = use_fast_tokenizer
         self._tokenizer = get_tokenizer(self.model_type, self._use_fast_tokenizer)
-        self._model = get_model(self.model_type, self.num_layers, self.all_layers)
+        self._model = get_model(self.model_type, num_layers, self.all_layers)
         self._model.to(self.device)
-
-        self._idf_dict = None
-        if idf_sents is not None:
-            self.compute_idf(idf_sents)
-
-        self._baseline_vals = None
-        self.baseline_path = baseline_path
-        self.use_custom_baseline = self.baseline_path is not None
-        if self.baseline_path is None:
-            self.baseline_path = os.path.join(
-                os.path.dirname(__file__),
-                f"rescale_baseline/{self.lang}/{self.model_type}.tsv",
-            )
 
     @property
     def lang(self):
         return self._lang
 
     @property
-    def idf(self):
-        return self._idf
-
-    @property
     def model_type(self):
         return self._model_type
 
     @property
-    def num_layers(self):
-        return self._num_layers
-
-    @property
-    def rescale_with_baseline(self):
-        return self._rescale_with_baseline
-
-    @property
-    def baseline_vals(self):
-        if self._baseline_vals is None:
-            if os.path.isfile(self.baseline_path):
-                if not self.all_layers:
-                    self._baseline_vals = torch.from_numpy(
-                        pd.read_csv(self.baseline_path).iloc[self.num_layers].to_numpy()
-                    )[1:].float()
-                else:
-                    self._baseline_vals = (
-                        torch.from_numpy(pd.read_csv(self.baseline_path).to_numpy())[
-                            :, 1:
-                        ]
-                        .unsqueeze(1)
-                        .float()
-                    )
-            else:
-                raise ValueError(
-                    f"Baseline not Found for {self.model_type} on {self.lang} at {self.baseline_path}"
-                )
-
-        return self._baseline_vals
-
-    @property
     def use_fast_tokenizer(self):
         return self._use_fast_tokenizer
-
-    @property
-    def hash(self):
-        return get_hash(
-            self.model_type,
-            self.num_layers,
-            self.idf,
-            self.rescale_with_baseline,
-            self.use_custom_baseline,
-            self.use_fast_tokenizer,
-        )
-
-    def compute_idf(self, sents):
-        """
-        Args:
-
-        """
-        if self._idf_dict is not None:
-            warnings.warn("Overwriting the previous importance weights.")
-
-        self._idf_dict = get_idf_dict(sents, self._tokenizer, nthreads=self.nthreads)
 
     def score(self, cands, refs, verbose=False, batch_size=64, return_hash=False):
         """
@@ -915,13 +777,9 @@ class BERTScorer:
             print("calculating scores...")
             start = time.perf_counter()
 
-        if self.idf:
-            assert self._idf_dict, "IDF weights are not computed"
-            idf_dict = self._idf_dict
-        else:
-            idf_dict = defaultdict(lambda: 1.0)
-            idf_dict[self._tokenizer.sep_token_id] = 0
-            idf_dict[self._tokenizer.cls_token_id] = 0
+        idf_dict = defaultdict(lambda: 1.0)
+        idf_dict[self._tokenizer.sep_token_id] = 0
+        idf_dict[self._tokenizer.cls_token_id] = 0
 
         all_preds = bert_cos_score_idf(
             self._model,
@@ -941,9 +799,6 @@ class BERTScorer:
                 max_preds.append(all_preds[start:end].max(dim=0)[0])
             all_preds = torch.stack(max_preds, dim=0)
 
-        if self.rescale_with_baseline:
-            all_preds = (all_preds - self.baseline_vals) / (1 - self.baseline_vals)
-
         out = all_preds[..., 0], all_preds[..., 1], all_preds[..., 2]  # P, R, F
 
         if verbose:
@@ -959,6 +814,16 @@ class BERTScorer:
     
 
 if __name__ == "__main__":
+    scorer = BERTScorer(model_type='bert-base-uncased')
+    P, R, F1 = scorer.score(["A"], ["B"])
+    print(f"BERTScore Precision: {P}, Recall: {R}, F1: {F1}")
+    # BERTScore Precision: tensor([0.7894]), Recall: tensor([0.7894]), F1: tensor([0.7894])
+
+    scorer = BERTScorer(model_type='bert-base-uncased')
+    P, R, F1 = scorer.score(["Hi", "Hi"], ["Hello", "random text"])
+    print(f"BERTScore Precision: {P}, Recall: {R}, F1: {F1}")
+    # BERTScore Precision: tensor([0.7938, 0.5002]), Recall: tensor([0.7938, 0.4142]), F1: tensor([0.7938, 0.4531])
+
     text1 = "Stars shine, and the sky is covered with a blue blanket."
     text2 = "Stars shine, and the sky is adorned with a bright color."
 
