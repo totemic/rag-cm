@@ -481,18 +481,18 @@ def greedy_cos_idf(
             .view(L * B, ref_embedding.size(1), D)
         )
     batch_size = ref_embedding.size(0)
-    sim = torch.bmm(hyp_embedding, ref_embedding.transpose(1, 2))
+    similarity = torch.bmm(hyp_embedding, ref_embedding.transpose(1, 2))
     masks = torch.bmm(hyp_masks.unsqueeze(2).float(), ref_masks.unsqueeze(1).float())
     if all_layers:
-        masks = masks.unsqueeze(0).expand(L, -1, -1, -1).contiguous().view_as(sim)
+        masks = masks.unsqueeze(0).expand(L, -1, -1, -1).contiguous().view_as(similarity)
     else:
-        masks = masks.expand(batch_size, -1, -1).contiguous().view_as(sim)
+        masks = masks.expand(batch_size, -1, -1).contiguous().view_as(similarity)
 
-    masks = masks.float().to(sim.device)
-    sim = sim * masks
+    masks = masks.float().to(similarity.device)
+    similarity = similarity * masks
 
-    word_precision = sim.max(dim=2)[0]
-    word_recall = sim.max(dim=1)[0]
+    word_precision = similarity.max(dim=2)[0]
+    word_recall = similarity.max(dim=1)[0]
 
     hyp_idf.div_(hyp_idf.sum(dim=1, keepdim=True))
     ref_idf.div_(ref_idf.sum(dim=1, keepdim=True))
